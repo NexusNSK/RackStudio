@@ -1,0 +1,485 @@
+/**
+ * RackStudio - Main Application Controller
+ */
+
+import { store } from './state.js?v=4';
+import { CableRenderer } from './cable-renderer.js?v=4';
+import { RackRenderer } from './rack-renderer.js?v=4';
+import { CliEditor } from './cli-editor.js?v=4';
+import { TemplateBuilder } from './template-builder.js?v=4';
+
+class App {
+  constructor() {
+    this.svgContainer = document.getElementById('cables-svg');
+    this.rackContainer = document.getElementById('rack-container');
+
+    this.cableRenderer = new CableRenderer(this.svgContainer, this.rackContainer);
+    this.rackRenderer = new RackRenderer(this.rackContainer, this.cableRenderer);
+    this.cliEditor = new CliEditor(document.getElementById('cli-modal'));
+    this.templateBuilder = new TemplateBuilder(document.getElementById('builder-modal'));
+
+    this.initGlobalWindowExposures();
+    this.initEventListeners();
+    this.subscribeState();
+
+    this.renderAll();
+  }
+
+  initGlobalWindowExposures() {
+    window.store = store;
+    window.openDeviceCli = (deviceId) => this.cliEditor.open(deviceId);
+    window.openDevicePaletteForUnit = (u) => this.openDevicePalette(u);
+    window.closeDevicePalette = () => this.closeDevicePalette();
+    window.openTemplateBuilder = () => this.templateBuilder.open();
+  }
+
+  initEventListeners() {
+    const rackSelect = document.getElementById('rack-select');
+    rackSelect?.addEventListener('change', (e) => {
+      if (e.target.value === '__add_new__') {
+        const name = prompt('Название новой стойки:', `Стойка №${store.getRacks().length + 1}`);
+        if (name) {
+          const u = parseInt(prompt('Высота стойки в юнитах (например: 12, 18, 24, 42, 48):', '24'), 10) || 24;
+          store.addRack(name, u);
+        } else {
+          this.updateRackSelector();
+        }
+      } else {
+        store.setActiveRack(e.target.value);
+      }
+    });
+
+    document.getElementById('btn-edit-rack')?.addEventListener('click', () => {
+      this.openRackSettings();
+    });
+
+    document.getElementById('toggle-dim-cables')?.addEventListener('change', (e) => {
+      store.setDimInactiveCables(e.target.checked);
+    });
+
+    document.getElementById('btn-add-group')?.addEventListener('click', () => {
+      this.openAddGroupModal();
+    });
+
+    document.getElementById('btn-catalog')?.addEventListener('click', () => {
+      this.openDevicePalette();
+    });
+
+    document.getElementById('btn-template-builder')?.addEventListener('click', () => {
+      this.templateBuilder.open();
+    });
+
+    document.getElementById('btn-export-json')?.addEventListener('click', () => {
+      store.exportToJson();
+    });
+
+    document.getElementById('btn-import-json')?.addEventListener('click', () => {
+      document.getElementById('import-file-input')?.click();
+    });
+
+    document.getElementById('import-file-input')?.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        store.importFromJson(evt.target?.result);
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    });
+
+    document.getElementById('btn-reset-demo')?.addEventListener('click', () => {
+      store.resetToDefault();
+    });
+
+    document.getElementById('close-palette-modal')?.addEventListener('click', () => {
+      this.closeDevicePalette();
+    });
+
+    document.getElementById('close-details-drawer')?.addEventListener('click', () => {
+      store.clearSelection();
+    });
+
+    document.getElementById('close-group-modal')?.addEventListener('click', () => {
+      this.closeAddGroupModal();
+    });
+  }
+
+  subscribeState() {
+    store.subscribe((event, payload) => {
+      if (event === 'rack_changed' || event === 'rack_added' || event === 'rack_deleted' || event === 'state_imported' || event === 'state_reset') {
+        this.updateRackSelector();
+        this.renderWorkplaceFilterBadges();
+        this.rackRenderer.render();
+      } else if (event === 'group_filter_changed' || event === 'filter_settings_changed') {
+        this.renderWorkplaceFilterBadges();
+        this.rackRenderer.render();
+      } else if (event === 'selection_changed') {
+        this.renderDetailsDrawer();
+        this.cableRenderer.render();
+      } else if (event.startsWith('cable_') || event.startsWith('device_')) {
+        this.renderWorkplaceFilterBadges();
+        this.rackRenderer.render();
+        this.renderDetailsDrawer();
+      } else if (event.startsWith('group_')) {
+        this.renderWorkplaceFilterBadges();
+        this.cableRenderer.render();
+      }
+    });
+  }
+
+  renderAll() {
+    this.updateRackSelector();
+    this.renderWorkplaceFilterBadges();
+    this.rackRenderer.render();
+    this.renderDetailsDrawer();
+  }
+
+  updateRackSelector() {
+    const rackSelect = document.getElementById('rack-select');
+    if (!rackSelect) return;
+
+    const racks = store.getRacks();
+    const activeRack = store.getActiveRack();
+
+    let html = racks.map(r => `
+      <option value="${r.id}" ${r.id === activeRack?.id ? 'selected' : ''}>
+        ${r.name} (${r.uHeight}U)
+      </option>
+    `).join('');
+
+    html += '<option value="__add_new__">+ Создать новую стойку...</option>';
+    rackSelect.innerHTML = html;
+  }
+
+  openRackSettings() {
+    const rack = store.getActiveRack();
+    if (!rack) return;
+
+    const newName = prompt('Название стойки:', rack.name);
+    if (!newName) return;
+    const newU = parseInt(prompt('Высота стойки в юнитах (U):', rack.uHeight), 10) || rack.uHeight;
+
+    store.updateRack(rack.id, {
+      name: newName,
+      uHeight: newU
+    });
+  }
+
+  renderWorkplaceFilterBadges() {
+    const container = document.getElementById('workplace-filter-bar');
+    if (!container) return;
+
+    const groups = store.getGroups();
+    const activeFilter = store.getActiveGroupFilter();
+    const allCables = store.getCablesForActiveRack();
+
+    let html = `
+      <button class="filter-pill flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${activeFilter === 'ALL' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm' : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 border border-slate-700/60'}"
+              data-group-id="ALL">
+        <span>🌐 Все соединения</span>
+        <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-900/80 text-slate-400 font-mono">${allCables.length}</span>
+      </button>
+    `;
+
+    groups.forEach(g => {
+      const isSelected = activeFilter === g.id;
+      const count = allCables.filter(c => c.groupId === g.id).length;
+
+      html += `
+        <button class="filter-pill flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${isSelected ? 'ring-1 text-white shadow-md' : 'bg-slate-800/80 text-slate-300 hover:text-white border border-slate-700/60'}"
+                style="${isSelected ? `background: ${g.color}25; border: 1px solid ${g.color}; box-shadow: 0 0 10px ${g.color}33;` : ''}"
+                data-group-id="${g.id}">
+          <span class="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm" style="background:${g.color}"></span>
+          <span class="truncate max-w-[160px]">${g.name}</span>
+          <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-900/80 font-mono" style="color:${g.color}">${count}</span>
+        </button>
+      `;
+    });
+
+    container.innerHTML = html;
+
+    container.querySelectorAll('.filter-pill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const gid = btn.dataset.groupId;
+        store.setActiveGroupFilter(gid);
+      });
+    });
+  }
+
+  openDevicePalette(targetU = null) {
+    this.targetPaletteU = targetU;
+    const modal = document.getElementById('palette-modal');
+    const listContainer = document.getElementById('palette-devices-list');
+    if (!modal || !listContainer) return;
+
+    const templates = store.getTemplates();
+    const rack = store.getActiveRack();
+
+    listContainer.innerHTML = templates.map(tpl => `
+      <div class="bg-slate-800/90 border border-slate-700 hover:border-cyan-500/60 rounded-xl p-3 flex flex-col justify-between transition-all group">
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 text-cyan-300 border border-cyan-900/50">${tpl.uHeight}U • ${tpl.category.toUpperCase()}</span>
+            <span class="text-[11px] text-slate-400">${tpl.powerW ? `${tpl.powerW} Вт` : 'Пассивный'}</span>
+          </div>
+          <h4 class="font-bold text-sm text-slate-100 group-hover:text-cyan-300 transition">${tpl.name}</h4>
+          <p class="text-xs text-slate-400 mt-1">${tpl.vendor} • Портов: <b>${tpl.ports.length}</b></p>
+        </div>
+
+        <div class="mt-4 pt-3 border-t border-slate-700/60 flex items-center justify-between">
+          <span class="text-[10px] text-slate-500">
+            ${tpl.style?.customImage ? '★ Фото-панель' : 'Стандартный рендер'}
+          </span>
+          <button class="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-lg shadow-md transition"
+                  onclick="window.installTemplateFromPalette('${tpl.id}')">
+            Установить в стойку
+          </button>
+        </div>
+      </div>
+    `).join('');
+
+    window.installTemplateFromPalette = (tplId) => {
+      let targetUnit = this.targetPaletteU;
+      if (!targetUnit) {
+        targetUnit = rack?.uHeight || 24;
+      }
+      const dev = store.installDevice(tplId, targetUnit);
+      if (dev) {
+        this.closeDevicePalette();
+      }
+    };
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+  }
+
+  closeDevicePalette() {
+    const modal = document.getElementById('palette-modal');
+    modal?.classList.add('hidden');
+    modal?.classList.remove('flex');
+    this.targetPaletteU = null;
+  }
+
+  openAddGroupModal() {
+    const modal = document.getElementById('group-modal');
+    if (!modal) return;
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+
+    const form = document.getElementById('group-form');
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      const name = document.getElementById('grp-name-input').value.trim();
+      const color = document.getElementById('grp-color-input').value;
+      const vlan = parseInt(document.getElementById('grp-vlan-input').value, 10) || 10;
+      const desc = document.getElementById('grp-desc-input').value.trim();
+
+      if (name) {
+        store.addGroup(name, color, vlan, desc);
+        this.closeAddGroupModal();
+      }
+    };
+  }
+
+  closeAddGroupModal() {
+    const modal = document.getElementById('group-modal');
+    modal?.classList.add('hidden');
+    modal?.classList.remove('flex');
+  }
+
+  renderDetailsDrawer() {
+    const drawer = document.getElementById('details-drawer');
+    const content = document.getElementById('details-content');
+    if (!drawer || !content) return;
+
+    const sel = store.selectedEntity;
+    if (!sel) {
+      drawer.classList.add('translate-x-full');
+      return;
+    }
+
+    drawer.classList.remove('translate-x-full');
+
+    if (sel.type === 'device') {
+      const rack = store.getActiveRack();
+      const dev = rack?.installedDevices.find(d => d.id === sel.id);
+      if (!dev) return;
+      const tpl = store.getTemplate(dev.templateId);
+
+      const devCables = store.state.cables.filter(c => c.from.deviceId === dev.id || c.to.deviceId === dev.id);
+
+      content.innerHTML = `
+        <div class="space-y-4">
+          <div class="border-b border-slate-800 pb-3">
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">U${dev.uPosition} • ${tpl?.uHeight || 1}U</span>
+            <h3 class="text-base font-bold text-slate-100 mt-1">${dev.customName}</h3>
+            <p class="text-xs text-slate-400">${tpl?.vendor || 'Vendor'} • ${tpl?.category || 'Device'}</p>
+          </div>
+
+          <div class="flex gap-2">
+            ${tpl?.category === 'switch' || dev.cliConfig ? `
+              <button class="flex-1 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5"
+                      onclick="window.openDeviceCli('${dev.id}')">
+                <span>💻 Открыть CLI конфиг</span>
+              </button>
+            ` : ''}
+            <button class="px-3 py-2 bg-red-950 hover:bg-red-900 text-red-300 border border-red-800 rounded-lg text-xs transition"
+                    title="Удалить из стойки" onclick="store.removeDevice('${dev.id}')">
+              Удалить
+            </button>
+          </div>
+
+          <div class="space-y-3 bg-slate-800/60 p-3 rounded-lg border border-slate-700/80 text-xs">
+            <div>
+              <label class="block text-slate-400 text-[11px] mb-1">Имя устройства</label>
+              <input type="text" id="drawer-dev-name" value="${dev.customName}" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs">
+            </div>
+            <div>
+              <label class="block text-slate-400 text-[11px] mb-1">IP-адрес управления</label>
+              <input type="text" id="drawer-dev-ip" value="${dev.ipAddress || ''}" placeholder="192.168.1.xxx" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs font-mono">
+            </div>
+            <div>
+              <label class="block text-slate-400 text-[11px] mb-1">Заметки / Описание</label>
+              <textarea id="drawer-dev-notes" rows="2" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs">${dev.notes || ''}</textarea>
+            </div>
+          </div>
+
+          <div>
+            <h4 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2 flex items-center justify-between">
+              <span>Подключения (${devCables.length})</span>
+            </h4>
+            <div class="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+              ${devCables.map(c => {
+                const grp = store.getGroup(c.groupId);
+                const isFrom = c.from.deviceId === dev.id;
+                const myPort = isFrom ? c.from.portId : c.to.portId;
+                const remoteEnd = isFrom ? c.to : c.from;
+                const remoteDev = rack.installedDevices.find(d => d.id === remoteEnd.deviceId);
+
+                return `
+                  <div class="bg-slate-900/90 border border-slate-800 p-2 rounded text-xs flex items-center justify-between">
+                    <div>
+                      <div class="font-mono text-cyan-300 text-[11px]">Порт ${myPort} ➔ ${remoteDev?.customName}:${remoteEnd.portId}</div>
+                      ${grp ? `<span class="inline-block text-[10px] mt-0.5" style="color:${grp.color}">● ${grp.name}</span>` : '<span class="text-[10px] text-slate-500">Без группы</span>'}
+                    </div>
+                    <button class="text-red-400 hover:text-red-300 text-xs px-1.5 py-0.5 bg-red-950/60 rounded"
+                            onclick="store.removeCable('${c.id}')">✕</button>
+                  </div>
+                `;
+              }).join('')}
+              ${devCables.length === 0 ? '<div class="text-xs text-slate-500 italic">Нет подключенных кабелей</div>' : ''}
+            </div>
+          </div>
+        </div>
+      `;
+
+      content.querySelector('#drawer-dev-name')?.addEventListener('input', (e) => {
+        store.updateDevice(dev.id, { customName: e.target.value });
+      });
+      content.querySelector('#drawer-dev-ip')?.addEventListener('input', (e) => {
+        store.updateDevice(dev.id, { ipAddress: e.target.value });
+      });
+      content.querySelector('#drawer-dev-notes')?.addEventListener('input', (e) => {
+        store.updateDevice(dev.id, { notes: e.target.value });
+      });
+
+    } else if (sel.type === 'cable') {
+      const cable = store.state.cables.find(c => c.id === sel.id);
+      if (!cable) return;
+
+      const rack = store.getActiveRack();
+      const devFrom = rack?.installedDevices.find(d => d.id === cable.from.deviceId);
+      const devTo = rack?.installedDevices.find(d => d.id === cable.to.deviceId);
+      const groups = store.getGroups();
+
+      content.innerHTML = `
+        <div class="space-y-4">
+          <div class="border-b border-slate-800 pb-3">
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-950 text-blue-400 border border-blue-800">Патч-корд</span>
+            <h3 class="text-base font-bold text-slate-100 mt-1">Параметры соединения</h3>
+            <p class="text-xs font-mono text-cyan-300 mt-1">
+              ${devFrom?.customName}:${cable.from.portId} ⇄ ${devTo?.customName}:${cable.to.portId}
+            </p>
+          </div>
+
+          <div class="space-y-3 bg-slate-800/60 p-3 rounded-lg border border-slate-700/80 text-xs">
+            <div>
+              <label class="block text-slate-400 text-[11px] mb-1 font-semibold text-cyan-300">★ Группа рабочего места / Сервис</label>
+              <select id="drawer-cable-group" class="w-full bg-slate-900 border border-cyan-700/80 rounded px-2.5 py-1.5 text-slate-100 text-xs focus:ring-2 focus:ring-cyan-400">
+                <option value="">(Без группы / Инфраструктура)</option>
+                ${groups.map(g => `
+                  <option value="${g.id}" ${g.id === cable.groupId ? 'selected' : ''}>
+                    ${g.name} (VLAN ${g.vlan})
+                  </option>
+                `).join('')}
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-slate-400 text-[11px] mb-1">Метка / Назначение</label>
+              <input type="text" id="drawer-cable-label" value="${cable.label || ''}" placeholder="Например: ПК Бухгалтера" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs">
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-slate-400 text-[11px] mb-1">Цвет кабеля</label>
+                <input type="color" id="drawer-cable-color" value="${cable.color || '#3b82f6'}" class="w-full h-8 bg-slate-900 border border-slate-700 rounded cursor-pointer p-0.5">
+              </div>
+              <div>
+                <label class="block text-slate-400 text-[11px] mb-1">Длина (метры)</label>
+                <input type="number" step="0.25" id="drawer-cable-len" value="${cable.lengthM || 0.5}" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-slate-400 text-[11px] mb-1">Тип кабеля</label>
+              <select id="drawer-cable-type" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs">
+                <option value="Cat6 UTP" ${cable.type === 'Cat6 UTP' ? 'selected' : ''}>Медь Cat6 UTP</option>
+                <option value="Cat6A STP" ${cable.type === 'Cat6A STP' ? 'selected' : ''}>Медь Cat6A STP Shielded</option>
+                <option value="10G SFP+ DAC" ${cable.type === '10G SFP+ DAC' ? 'selected' : ''}>Прямое подключение 10G DAC</option>
+                <option value="Fiber OM4" ${cable.type === 'Fiber OM4' ? 'selected' : ''}>Оптика Multi-mode OM4 (Aqua)</option>
+                <option value="Fiber OS2" ${cable.type === 'Fiber OS2' ? 'selected' : ''}>Оптика Single-mode OS2 (Yellow)</option>
+              </select>
+            </div>
+          </div>
+
+          <button class="w-full py-2 bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-800 rounded-lg text-xs font-semibold transition"
+                  onclick="store.removeCable('${cable.id}')">
+            🗑 Удалить кабель
+          </button>
+        </div>
+      `;
+
+      content.querySelector('#drawer-cable-group')?.addEventListener('change', (e) => {
+        const gid = e.target.value;
+        const grp = store.getGroup(gid);
+        store.updateCable(cable.id, {
+          groupId: gid,
+          color: grp ? grp.color : cable.color
+        });
+      });
+
+      content.querySelector('#drawer-cable-label')?.addEventListener('input', (e) => {
+        store.updateCable(cable.id, { label: e.target.value });
+      });
+
+      content.querySelector('#drawer-cable-color')?.addEventListener('input', (e) => {
+        store.updateCable(cable.id, { color: e.target.value });
+      });
+
+      content.querySelector('#drawer-cable-len')?.addEventListener('input', (e) => {
+        store.updateCable(cable.id, { lengthM: parseFloat(e.target.value) || 0.5 });
+      });
+
+      content.querySelector('#drawer-cable-type')?.addEventListener('change', (e) => {
+        store.updateCable(cable.id, { type: e.target.value });
+      });
+    }
+  }
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  window.app = new App();
+});
