@@ -128,13 +128,13 @@ class StateStore {
     this.notify('rack_changed', { rackId });
   }
 
-  addRack(name = 'Новая стойка', uHeight = 24) {
+  addRack(name = 'Новая стойка', uHeight = 24, model = null) {
     const newId = `rack-${Date.now()}`;
     const newRack = {
       id: newId,
       name,
       uHeight,
-      model: `19" ${uHeight}U Enclosure`,
+      model: model || `19" ${uHeight}U Enclosure`,
       installedDevices: []
     };
     this.state.racks.push(newRack);

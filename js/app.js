@@ -2,11 +2,11 @@
  * RackStudio - Main Application Controller
  */
 
-import { store } from './state.js?v=5';
-import { CableRenderer } from './cable-renderer.js?v=5';
-import { RackRenderer } from './rack-renderer.js?v=5';
-import { CliEditor } from './cli-editor.js?v=5';
-import { TemplateBuilder } from './template-builder.js?v=5';
+import { store } from './state.js?v=6';
+import { CableRenderer } from './cable-renderer.js?v=6';
+import { RackRenderer } from './rack-renderer.js?v=6';
+import { CliEditor } from './cli-editor.js?v=6';
+import { TemplateBuilder } from './template-builder.js?v=6';
 
 class App {
   constructor() {
@@ -17,6 +17,8 @@ class App {
     this.rackRenderer = new RackRenderer(this.rackContainer, this.cableRenderer);
     this.cliEditor = new CliEditor(document.getElementById('cli-modal'));
     this.templateBuilder = new TemplateBuilder(document.getElementById('builder-modal'));
+
+    this.editingRackId = null;
 
     this.initGlobalWindowExposures();
     this.initEventListeners();
@@ -37,20 +39,80 @@ class App {
     const rackSelect = document.getElementById('rack-select');
     rackSelect?.addEventListener('change', (e) => {
       if (e.target.value === '__add_new__') {
-        const name = prompt('Название новой стойки:', `Стойка №${store.getRacks().length + 1}`);
-        if (name) {
-          const u = parseInt(prompt('Высота стойки в юнитах (например: 12, 18, 24, 42, 48):', '24'), 10) || 24;
-          store.addRack(name, u);
-        } else {
-          this.updateRackSelector();
-        }
+        this.openAddRackModal();
       } else {
         store.setActiveRack(e.target.value);
       }
     });
 
+    document.getElementById('btn-add-rack')?.addEventListener('click', () => {
+      this.openAddRackModal();
+    });
+
+    document.getElementById('btn-sidebar-add-rack')?.addEventListener('click', () => {
+      this.openAddRackModal();
+    });
+
     document.getElementById('btn-edit-rack')?.addEventListener('click', () => {
-      this.openRackSettings();
+      this.openEditRackModal(store.state.activeRackId);
+    });
+
+    // Rack modal controls
+    document.getElementById('close-rack-modal')?.addEventListener('click', () => {
+      this.closeRackModal();
+    });
+
+    document.getElementById('btn-cancel-rack-modal')?.addEventListener('click', () => {
+      this.closeRackModal();
+    });
+
+    document.getElementById('rack-u-input')?.addEventListener('change', (e) => {
+      const customWrap = document.getElementById('rack-custom-u-wrap');
+      if (customWrap) {
+        if (e.target.value === 'custom') {
+          customWrap.classList.remove('hidden');
+        } else {
+          customWrap.classList.add('hidden');
+        }
+      }
+    });
+
+    document.getElementById('btn-delete-rack-modal')?.addEventListener('click', () => {
+      if (this.editingRackId) {
+        const rack = store.getRacks().find(r => r.id === this.editingRackId);
+        if (confirm(`Удалить стойку "${rack?.name || 'Стойка'}" и все ее подключения?`)) {
+          store.deleteRack(this.editingRackId);
+          this.closeRackModal();
+        }
+      }
+    });
+
+    const rackForm = document.getElementById('rack-form');
+    rackForm?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = document.getElementById('rack-name-input')?.value.trim();
+      const uSelect = document.getElementById('rack-u-input')?.value;
+      const customU = parseInt(document.getElementById('rack-custom-u-input')?.value, 10);
+      const model = document.getElementById('rack-model-input')?.value;
+
+      let uHeight = uSelect === 'custom' ? (customU || 24) : parseInt(uSelect, 10) || 24;
+
+      if (!name) {
+        alert('Укажите название стойки');
+        return;
+      }
+
+      if (this.editingRackId) {
+        store.updateRack(this.editingRackId, {
+          name,
+          uHeight,
+          model
+        });
+      } else {
+        store.addRack(name, uHeight, model);
+      }
+
+      this.closeRackModal();
     });
 
     document.getElementById('toggle-dim-cables')?.addEventListener('change', (e) => {
@@ -137,33 +199,112 @@ class App {
 
   updateRackSelector() {
     const rackSelect = document.getElementById('rack-select');
-    if (!rackSelect) return;
-
+    const racksList = document.getElementById('sidebar-racks-list');
     const racks = store.getRacks();
     const activeRack = store.getActiveRack();
 
-    let html = racks.map(r => `
-      <option value="${r.id}" ${r.id === activeRack?.id ? 'selected' : ''}>
-        ${r.name} (${r.uHeight}U)
-      </option>
-    `).join('');
+    if (rackSelect) {
+      let html = racks.map(r => `
+        <option value="${r.id}" ${r.id === activeRack?.id ? 'selected' : ''}>
+          ${r.name} (${r.uHeight}U)
+        </option>
+      `).join('');
+      html += '<option value="__add_new__">+ Создать новую стойку...</option>';
+      rackSelect.innerHTML = html;
+    }
 
-    html += '<option value="__add_new__">+ Создать новую стойку...</option>';
-    rackSelect.innerHTML = html;
+    if (racksList) {
+      racksList.innerHTML = racks.map(r => {
+        const isActive = r.id === activeRack?.id;
+        return `
+          <button class="w-full text-left p-2.5 rounded-lg text-xs font-medium border transition flex items-center justify-between ${isActive ? 'bg-cyan-950/50 text-cyan-200 border-cyan-700/80 shadow-sm' : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border-slate-800'}"
+                  onclick="store.setActiveRack('${r.id}')">
+            <div class="truncate pr-1">
+              <div class="font-bold truncate text-slate-200">${r.name}</div>
+              <div class="text-[10px] text-slate-500 font-mono mt-0.5">${r.uHeight}U • ${r.installedDevices.length} устр.</div>
+            </div>
+            <span class="w-2 h-2 rounded-full ${isActive ? 'bg-emerald-400 shadow-[0_0_6px_#34d399]' : 'bg-slate-700'} shrink-0 ml-1"></span>
+          </button>
+        `;
+      }).join('');
+    }
   }
 
-  openRackSettings() {
-    const rack = store.getActiveRack();
+  openAddRackModal() {
+    this.editingRackId = null;
+    const modal = document.getElementById('rack-modal');
+    if (!modal) return;
+
+    const titleEl = document.getElementById('rack-modal-title');
+    if (titleEl) titleEl.textContent = 'Новая серверная стойка';
+
+    const nameInput = document.getElementById('rack-name-input');
+    if (nameInput) nameInput.value = `Стойка №${store.getRacks().length + 1}`;
+
+    const uInput = document.getElementById('rack-u-input');
+    if (uInput) uInput.value = '24';
+
+    const customWrap = document.getElementById('rack-custom-u-wrap');
+    if (customWrap) customWrap.classList.add('hidden');
+
+    const delBtn = document.getElementById('btn-delete-rack-modal');
+    if (delBtn) delBtn.classList.add('hidden');
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+  }
+
+  openEditRackModal(rackId) {
+    const rack = store.getRacks().find(r => r.id === rackId) || store.getActiveRack();
     if (!rack) return;
 
-    const newName = prompt('Название стойки:', rack.name);
-    if (!newName) return;
-    const newU = parseInt(prompt('Высота стойки в юнитах (U):', rack.uHeight), 10) || rack.uHeight;
+    this.editingRackId = rack.id;
+    const modal = document.getElementById('rack-modal');
+    if (!modal) return;
 
-    store.updateRack(rack.id, {
-      name: newName,
-      uHeight: newU
-    });
+    const titleEl = document.getElementById('rack-modal-title');
+    if (titleEl) titleEl.textContent = `Настройки: ${rack.name}`;
+
+    const nameInput = document.getElementById('rack-name-input');
+    if (nameInput) nameInput.value = rack.name;
+
+    const uInput = document.getElementById('rack-u-input');
+    const customWrap = document.getElementById('rack-custom-u-wrap');
+    const customUInput = document.getElementById('rack-custom-u-input');
+
+    if (['12', '18', '24', '42', '48'].includes(String(rack.uHeight))) {
+      if (uInput) uInput.value = String(rack.uHeight);
+      if (customWrap) customWrap.classList.add('hidden');
+    } else {
+      if (uInput) uInput.value = 'custom';
+      if (customWrap) customWrap.classList.remove('hidden');
+      if (customUInput) customUInput.value = rack.uHeight;
+    }
+
+    const modelInput = document.getElementById('rack-model-input');
+    if (modelInput && rack.model) modelInput.value = rack.model;
+
+    const delBtn = document.getElementById('btn-delete-rack-modal');
+    if (delBtn) {
+      if (store.getRacks().length > 1) {
+        delBtn.classList.remove('hidden');
+      } else {
+        delBtn.classList.add('hidden');
+      }
+    }
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+  }
+
+  closeRackModal() {
+    const modal = document.getElementById('rack-modal');
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+    this.editingRackId = null;
+    this.updateRackSelector();
   }
 
   renderWorkplaceFilterBadges() {

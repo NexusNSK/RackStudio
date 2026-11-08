@@ -49,14 +49,17 @@
 
       <div class="h-5 w-px bg-slate-800 mx-1"></div>
 
-      <!-- Rack Selector -->
-      <div class="flex items-center gap-2">
+      <!-- Rack Selector & Controls -->
+      <div class="flex items-center gap-1.5">
         <label for="rack-select" class="text-xs text-slate-400">Стойка:</label>
-        <select id="rack-select" class="bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 cursor-pointer font-medium">
+        <select id="rack-select" class="bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 cursor-pointer font-medium max-w-[190px] truncate">
           <!-- Populated dynamically -->
         </select>
         <button id="btn-edit-rack" class="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition" title="Настройки стойки">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+        </button>
+        <button id="btn-add-rack" class="px-2.5 py-1 bg-cyan-950/90 hover:bg-cyan-900 text-cyan-300 border border-cyan-800/80 rounded-lg text-xs font-semibold flex items-center gap-1 transition shadow-sm" title="Создать новую стойку">
+          <span>+ Стойка</span>
         </button>
       </div>
     </div>
@@ -124,12 +127,14 @@
     <aside class="w-64 border-r border-slate-800 bg-[#0c0e14] p-4 flex flex-col justify-between shrink-0 hidden md:flex">
       <div class="space-y-4">
         <div>
-          <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Навигация</h4>
-          <div class="space-y-1">
-            <button class="w-full text-left px-3 py-2 bg-slate-800/80 text-cyan-300 rounded-lg text-xs font-medium border border-slate-700/60 flex items-center justify-between">
-              <span>Стойка 19" (Фронт)</span>
-              <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]"></span>
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Серверные стойки</h4>
+            <button id="btn-sidebar-add-rack" class="text-[11px] text-cyan-400 hover:text-cyan-300 font-medium hover:underline flex items-center gap-0.5">
+              <span>+ Стойка</span>
             </button>
+          </div>
+          <div class="space-y-1.5" id="sidebar-racks-list">
+            <!-- Populated dynamically by app.js -->
           </div>
         </div>
 
@@ -498,8 +503,70 @@
     </div>
   </div>
 
+  <!-- ================= MODAL: ADD / EDIT RACK ================= -->
+  <div id="rack-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="w-full max-w-md bg-[#11141c] border border-slate-700 rounded-xl shadow-2xl p-6">
+      
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+        <h3 id="rack-modal-title" class="font-bold text-base text-white">Новая серверная стойка</h3>
+        <button id="close-rack-modal" class="text-slate-400 hover:text-white">✕</button>
+      </div>
+
+      <form id="rack-form" class="space-y-4 text-xs">
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">Название стойки</label>
+          <input type="text" id="rack-name-input" required placeholder="Например: Стойка №2 (Кроссовая 2 этаж)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-300 font-medium mb-1">Высота в юнитах</label>
+            <select id="rack-u-input" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
+              <option value="12">12U (Компактная)</option>
+              <option value="18">18U</option>
+              <option value="24" selected>24U (Стандарт)</option>
+              <option value="42">42U (Полноразмерная)</option>
+              <option value="48">48U (Высокая)</option>
+              <option value="custom">Другое количество...</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-300 font-medium mb-1">Ширина оборудования</label>
+            <input type="text" value='19" (Стандарт 482.6 мм)' disabled class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-400 cursor-not-allowed">
+          </div>
+        </div>
+
+        <div id="rack-custom-u-wrap" class="hidden">
+          <label class="block text-slate-300 font-medium mb-1">Кастомная высота (U)</label>
+          <input type="number" id="rack-custom-u-input" min="4" max="60" value="24" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
+        </div>
+
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">Тип шкафа / стойки</label>
+          <select id="rack-model-input" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
+            <option value='19" Напольный шкаф (600x800)'>19" Напольный серверный шкаф (600x800 мм)</option>
+            <option value='19" Напольный шкаф (600x1000)'>19" Глубокий серверный шкаф (600x1000 мм)</option>
+            <option value='19" Настенный шкаф (600x450)'>19" Настенный телекоммуникационный шкаф</option>
+            <option value='19" Открытая двухрамная стойка'>19" Открытая двухрамная стойка</option>
+          </select>
+        </div>
+
+        <div class="pt-3 border-t border-slate-800 flex items-center justify-between">
+          <button type="button" id="btn-delete-rack-modal" class="text-red-400 hover:text-red-300 text-xs px-2.5 py-1.5 rounded hover:bg-red-950/60 hidden">
+            🗑 Удалить стойку
+          </button>
+          <div class="flex items-center gap-2 ml-auto">
+            <button type="button" id="btn-cancel-rack-modal" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg">Отмена</button>
+            <button type="submit" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg shadow">Сохранить</button>
+          </div>
+        </div>
+      </form>
+
+    </div>
+  </div>
+
   <!-- Main Application Script (ESM) -->
-  <script type="module" src="js/app.js?v=5"></script>
+  <script type="module" src="js/app.js?v=6"></script>
 
 </body>
 </html>
