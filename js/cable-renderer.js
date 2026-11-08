@@ -2,7 +2,7 @@
  * RackStudio - Cable SVG Routing & Interaction Engine
  */
 
-import { store } from './state.js?v=5';
+import { store } from './state.js';
 
 export class CableRenderer {
   constructor(svgContainer, rackElement) {

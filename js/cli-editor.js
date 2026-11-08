@@ -2,7 +2,7 @@
  * RackStudio - Switch CLI Configuration Manager
  */
 
-import { store } from './state.js?v=5';
+import { store } from './state.js';
 
 export class CliEditor {
   constructor(modalElement) {

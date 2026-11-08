@@ -4,7 +4,7 @@
  * with grid snapping, coaxial row alignment, and interactive dragging.
  */
 
-import { store } from './state.js?v=5';
+import { store } from './state.js';
 
 export class TemplateBuilder {
   constructor(modalElement) {

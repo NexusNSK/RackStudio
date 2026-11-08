@@ -55,10 +55,10 @@
         <select id="rack-select" class="bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 cursor-pointer font-medium max-w-[190px] truncate">
           <!-- Populated dynamically -->
         </select>
-        <button id="btn-edit-rack" class="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition" title="Настройки стойки">
+        <button id="btn-edit-rack" onclick="window.openEditRackModal()" class="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition" title="Настройки стойки">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
         </button>
-        <button id="btn-add-rack" class="px-2.5 py-1 bg-cyan-950/90 hover:bg-cyan-900 text-cyan-300 border border-cyan-800/80 rounded-lg text-xs font-semibold flex items-center gap-1 transition shadow-sm" title="Создать новую стойку">
+        <button id="btn-add-rack" onclick="window.openAddRackModal()" class="px-2.5 py-1 bg-cyan-950/90 hover:bg-cyan-900 text-cyan-300 border border-cyan-800/80 rounded-lg text-xs font-semibold flex items-center gap-1 transition shadow-sm" title="Создать новую стойку">
           <span>+ Стойка</span>
         </button>
       </div>
@@ -66,12 +66,12 @@
 
     <!-- Center/Right Actions -->
     <div class="flex items-center gap-2.5">
-      <button id="btn-catalog" class="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold shadow-md shadow-cyan-600/20 transition">
+      <button id="btn-catalog" onclick="window.openDevicePalette()" class="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold shadow-md shadow-cyan-600/20 transition">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
         <span>+ Устройство</span>
       </button>
 
-      <button id="btn-template-builder" class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 rounded-lg text-xs font-semibold shadow-sm transition">
+      <button id="btn-template-builder" onclick="window.openTemplateBuilder()" class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 rounded-lg text-xs font-semibold shadow-sm transition">
         <span>🛠 Конструктор шаблонов</span>
       </button>
 
@@ -106,7 +106,7 @@
         <!-- Pills rendered by app.js -->
       </div>
 
-      <button id="btn-add-group" class="shrink-0 px-2.5 py-1 rounded-lg text-xs text-slate-400 hover:text-cyan-300 bg-slate-900 border border-slate-800 hover:border-cyan-800 transition flex items-center gap-1">
+      <button id="btn-add-group" onclick="window.openAddGroupModal()" class="shrink-0 px-2.5 py-1 rounded-lg text-xs text-slate-400 hover:text-cyan-300 bg-slate-900 border border-slate-800 hover:border-cyan-800 transition flex items-center gap-1">
         <span>+ Группа</span>
       </button>
     </div>
@@ -129,7 +129,7 @@
         <div>
           <div class="flex items-center justify-between mb-2">
             <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Серверные стойки</h4>
-            <button id="btn-sidebar-add-rack" class="text-[11px] text-cyan-400 hover:text-cyan-300 font-medium hover:underline flex items-center gap-0.5">
+            <button id="btn-sidebar-add-rack" onclick="window.openAddRackModal()" class="text-[11px] text-cyan-400 hover:text-cyan-300 font-medium hover:underline flex items-center gap-0.5">
               <span>+ Стойка</span>
             </button>
           </div>
@@ -445,7 +445,7 @@
         <h3 class="text-base font-bold text-white flex items-center gap-2">
           <span>Каталог оборудования для стойки</span>
         </h3>
-        <button id="close-palette-modal" class="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800">✕</button>
+        <button id="close-palette-modal" onclick="window.closeDevicePalette()" class="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800">✕</button>
       </div>
 
       <div class="flex-1 overflow-y-auto p-6">
@@ -469,7 +469,7 @@
       
       <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
         <h3 class="font-bold text-base text-white">Новая группа соединений</h3>
-        <button id="close-group-modal" class="text-slate-400 hover:text-white">✕</button>
+        <button id="close-group-modal" onclick="window.closeAddGroupModal()" class="text-slate-400 hover:text-white">✕</button>
       </div>
 
       <form id="group-form" class="space-y-4 text-xs">
@@ -495,7 +495,7 @@
         </div>
 
         <div class="pt-2 flex justify-end gap-2">
-          <button type="button" onclick="app.closeAddGroupModal()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg">Отмена</button>
+          <button type="button" onclick="window.closeAddGroupModal()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg">Отмена</button>
           <button type="submit" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg shadow">Создать группу</button>
         </div>
       </form>
@@ -509,7 +509,7 @@
       
       <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
         <h3 id="rack-modal-title" class="font-bold text-base text-white">Новая серверная стойка</h3>
-        <button id="close-rack-modal" class="text-slate-400 hover:text-white">✕</button>
+        <button type="button" id="close-rack-modal" onclick="window.closeRackModal()" class="text-slate-400 hover:text-white">✕</button>
       </div>
 
       <form id="rack-form" class="space-y-4 text-xs">
@@ -556,7 +556,7 @@
             🗑 Удалить стойку
           </button>
           <div class="flex items-center gap-2 ml-auto">
-            <button type="button" id="btn-cancel-rack-modal" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg">Отмена</button>
+            <button type="button" id="btn-cancel-rack-modal" onclick="window.closeRackModal()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg">Отмена</button>
             <button type="submit" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg shadow">Сохранить</button>
           </div>
         </div>
@@ -566,7 +566,7 @@
   </div>
 
   <!-- Main Application Script (ESM) -->
-  <script type="module" src="js/app.js?v=6"></script>
+  <script type="module" src="js/app.js?v=8"></script>
 
 </body>
 </html>

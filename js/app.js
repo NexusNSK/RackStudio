@@ -2,11 +2,22 @@
  * RackStudio - Main Application Controller
  */
 
-import { store } from './state.js?v=6';
-import { CableRenderer } from './cable-renderer.js?v=6';
-import { RackRenderer } from './rack-renderer.js?v=6';
-import { CliEditor } from './cli-editor.js?v=6';
-import { TemplateBuilder } from './template-builder.js?v=6';
+import { store } from './state.js';
+import { CableRenderer } from './cable-renderer.js';
+import { RackRenderer } from './rack-renderer.js';
+import { CliEditor } from './cli-editor.js';
+import { TemplateBuilder } from './template-builder.js';
+
+// Early exposure of global modal and action shortcuts for inline HTML triggers
+window.openAddRackModal = () => (window.app ? window.app.openAddRackModal() : null);
+window.openEditRackModal = (id) => (window.app ? window.app.openEditRackModal(id) : null);
+window.closeRackModal = () => (window.app ? window.app.closeRackModal() : null);
+window.openAddGroupModal = () => (window.app ? window.app.openAddGroupModal() : null);
+window.closeAddGroupModal = () => (window.app ? window.app.closeAddGroupModal() : null);
+window.openDevicePalette = (u) => (window.app ? window.app.openDevicePalette(u) : null);
+window.openDevicePaletteForUnit = (u) => (window.app ? window.app.openDevicePalette(u) : null);
+window.closeDevicePalette = () => (window.app ? window.app.closeDevicePalette() : null);
+window.openTemplateBuilder = () => (window.app ? window.app.templateBuilder.open() : null);
 
 class App {
   constructor() {
@@ -29,10 +40,17 @@ class App {
 
   initGlobalWindowExposures() {
     window.store = store;
+    window.app = this;
     window.openDeviceCli = (deviceId) => this.cliEditor.open(deviceId);
+    window.openDevicePalette = (u) => this.openDevicePalette(u);
     window.openDevicePaletteForUnit = (u) => this.openDevicePalette(u);
     window.closeDevicePalette = () => this.closeDevicePalette();
     window.openTemplateBuilder = () => this.templateBuilder.open();
+    window.openAddRackModal = () => this.openAddRackModal();
+    window.openEditRackModal = (id) => this.openEditRackModal(id);
+    window.closeRackModal = () => this.closeRackModal();
+    window.openAddGroupModal = () => this.openAddGroupModal();
+    window.closeAddGroupModal = () => this.closeAddGroupModal();
   }
 
   initEventListeners() {
@@ -169,19 +187,22 @@ class App {
 
   subscribeState() {
     store.subscribe((event, payload) => {
-      if (event === 'rack_changed' || event === 'rack_added' || event === 'rack_deleted' || event === 'state_imported' || event === 'state_reset') {
+      if (event === 'rack_changed' || event === 'rack_added' || event === 'rack_deleted' || event === 'rack_updated' || event === 'state_imported' || event === 'state_reset') {
         this.updateRackSelector();
         this.renderWorkplaceFilterBadges();
         this.rackRenderer.render();
+        this.cableRenderer.render();
       } else if (event === 'group_filter_changed' || event === 'filter_settings_changed') {
         this.renderWorkplaceFilterBadges();
         this.rackRenderer.render();
+        this.cableRenderer.render();
       } else if (event === 'selection_changed') {
         this.renderDetailsDrawer();
         this.cableRenderer.render();
       } else if (event.startsWith('cable_') || event.startsWith('device_')) {
         this.renderWorkplaceFilterBadges();
         this.rackRenderer.render();
+        this.cableRenderer.render();
         this.renderDetailsDrawer();
       } else if (event.startsWith('group_')) {
         this.renderWorkplaceFilterBadges();
@@ -252,6 +273,7 @@ class App {
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');
+    modal.style.display = 'flex';
   }
 
   openEditRackModal(rackId) {
@@ -295,6 +317,7 @@ class App {
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');
+    modal.style.display = 'flex';
   }
 
   closeRackModal() {
@@ -302,6 +325,7 @@ class App {
     if (modal) {
       modal.classList.add('hidden');
       modal.classList.remove('flex');
+      modal.style.display = 'none';
     }
     this.editingRackId = null;
     this.updateRackSelector();
@@ -393,12 +417,16 @@ class App {
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');
+    modal.style.display = 'flex';
   }
 
   closeDevicePalette() {
     const modal = document.getElementById('palette-modal');
-    modal?.classList.add('hidden');
-    modal?.classList.remove('flex');
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+      modal.style.display = 'none';
+    }
     this.targetPaletteU = null;
   }
 
@@ -408,6 +436,7 @@ class App {
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');
+    modal.style.display = 'flex';
 
     const form = document.getElementById('group-form');
     form.onsubmit = (e) => {
@@ -426,8 +455,11 @@ class App {
 
   closeAddGroupModal() {
     const modal = document.getElementById('group-modal');
-    modal?.classList.add('hidden');
-    modal?.classList.remove('flex');
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+      modal.style.display = 'none';
+    }
   }
 
   renderDetailsDrawer() {
@@ -621,6 +653,14 @@ class App {
   }
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  window.app = new App();
-});
+function startApp() {
+  if (!window.app) {
+    window.app = new App();
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', startApp);
+} else {
+  startApp();
+}

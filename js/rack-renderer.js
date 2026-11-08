@@ -2,7 +2,7 @@
  * RackStudio - Interactive 19" Rack & Device Renderer
  */
 
-import { store } from './state.js?v=5';
+import { store } from './state.js';
 
 export class RackRenderer {
   constructor(rackContainer, cableRenderer) {
