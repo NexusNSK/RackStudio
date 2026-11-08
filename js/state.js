@@ -2,9 +2,9 @@
  * RackStudio - State Management
  */
 
-import { DEFAULT_INITIAL_STATE } from './default-data.js';
+import { DEFAULT_INITIAL_STATE, DEFAULT_DEVICE_TEMPLATES } from './default-data.js';
 
-const STORAGE_KEY = 'rack_studio_data_v1';
+const STORAGE_KEY = 'rack_studio_data_v2';
 
 class StateStore {
   constructor() {
@@ -19,8 +19,26 @@ class StateStore {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && parsed.version === 1 && Array.isArray(parsed.racks)) {
+        if (parsed && parsed.version === 2 && Array.isArray(parsed.racks)) {
           return parsed;
+        }
+      }
+
+      // If user had custom templates in previous version, preserve them:
+      const oldRaw = localStorage.getItem('rack_studio_data_v1');
+      if (oldRaw) {
+        try {
+          const oldParsed = JSON.parse(oldRaw);
+          const customTemplates = (oldParsed.templates || []).filter(
+            t => !DEFAULT_DEVICE_TEMPLATES.some(dt => dt.id === t.id)
+          );
+          const newState = JSON.parse(JSON.stringify(DEFAULT_INITIAL_STATE));
+          if (customTemplates.length > 0) {
+            newState.templates.push(...customTemplates);
+          }
+          return newState;
+        } catch (err) {
+          console.warn('Failed to migrate templates from v1', err);
         }
       }
     } catch (e) {

@@ -2,11 +2,11 @@
  * RackStudio - Main Application Controller
  */
 
-import { store } from './state.js?v=4';
-import { CableRenderer } from './cable-renderer.js?v=4';
-import { RackRenderer } from './rack-renderer.js?v=4';
-import { CliEditor } from './cli-editor.js?v=4';
-import { TemplateBuilder } from './template-builder.js?v=4';
+import { store } from './state.js?v=5';
+import { CableRenderer } from './cable-renderer.js?v=5';
+import { RackRenderer } from './rack-renderer.js?v=5';
+import { CliEditor } from './cli-editor.js?v=5';
+import { TemplateBuilder } from './template-builder.js?v=5';
 
 class App {
   constructor() {
