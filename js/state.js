@@ -20,6 +20,10 @@ class StateStore {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && parsed.version === 2 && Array.isArray(parsed.racks)) {
+          const defaultRackId = parsed.activeRackId || parsed.racks[0]?.id;
+          (parsed.groups || []).forEach(g => {
+            if (!g.rackId) g.rackId = defaultRackId;
+          });
           return parsed;
         }
       }
@@ -90,8 +94,13 @@ class StateStore {
     return this.state.templates.find(t => t.id === id) || null;
   }
 
-  getGroups() {
-    return this.state.groups;
+  getGroups(rackId = null) {
+    const targetRackId = rackId || this.state.activeRackId;
+    return (this.state.groups || []).filter(g => g.rackId === targetRackId || (!g.rackId && targetRackId === this.state.racks[0]?.id));
+  }
+
+  getAllGroups() {
+    return this.state.groups || [];
   }
 
   getGroup(id) {
@@ -123,7 +132,9 @@ class StateStore {
   // --- Mutators ---
 
   setActiveRack(rackId) {
+    if (this.state.activeRackId === rackId) return;
     this.state.activeRackId = rackId;
+    this.state.activeGroupFilter = 'ALL';
     this.clearSelection();
     this.notify('rack_changed', { rackId });
   }
@@ -139,6 +150,7 @@ class StateStore {
     };
     this.state.racks.push(newRack);
     this.state.activeRackId = newId;
+    this.state.activeGroupFilter = 'ALL';
     this.notify('rack_added', { rack: newRack });
     return newRack;
   }
@@ -160,9 +172,12 @@ class StateStore {
       const devIds = new Set(rack.installedDevices.map(d => d.id));
       this.state.cables = this.state.cables.filter(c => !devIds.has(c.from.deviceId) && !devIds.has(c.to.deviceId));
     }
+    // Clean up groups belonging to this rack
+    this.state.groups = (this.state.groups || []).filter(g => g.rackId !== rackId);
     this.state.racks = this.state.racks.filter(r => r.id !== rackId);
     if (this.state.activeRackId === rackId) {
       this.state.activeRackId = this.state.racks[0].id;
+      this.state.activeGroupFilter = 'ALL';
     }
     this.notify('rack_deleted', { rackId });
   }
@@ -294,14 +309,17 @@ class StateStore {
   }
 
   // Workplace Groups
-  addGroup(name, color = '#00d2ff', vlan = 10, description = '') {
+  addGroup(name, color = '#00d2ff', vlan = 10, description = '', rackId = null) {
+    const targetRackId = rackId || this.state.activeRackId;
     const newGroup = {
       id: `grp-${Date.now()}`,
+      rackId: targetRackId,
       name,
       color,
       vlan,
       description
     };
+    if (!this.state.groups) this.state.groups = [];
     this.state.groups.push(newGroup);
     this.notify('group_added', { group: newGroup });
     return newGroup;

@@ -518,11 +518,17 @@ class App {
   renderGroupModalList() {
     const list = document.getElementById('group-existing-list');
     if (!list) return;
+    const activeRack = store.getActiveRack();
     const groups = store.getGroups();
-    const allCables = store.state.cables;
+    const allCables = store.getCablesForActiveRack();
+
+    const titleEl = document.querySelector('#group-existing-list-wrap > div');
+    if (titleEl) {
+      titleEl.textContent = `Группы стойки "${activeRack?.name || 'Стойка'}" (${groups.length})`;
+    }
 
     if (groups.length === 0) {
-      list.innerHTML = '<div class="text-[11px] text-slate-500 italic p-1">Групп пока нет. Создайте первую группу выше.</div>';
+      list.innerHTML = `<div class="text-[11px] text-slate-500 italic p-1">У стойки "${activeRack?.name || 'Стойка'}" пока нет групп соединений. Создайте первую группу выше.</div>`;
       return;
     }
 
@@ -550,6 +556,12 @@ class App {
   openAddGroupModal() {
     const modal = document.getElementById('group-modal');
     if (!modal) return;
+
+    const activeRack = store.getActiveRack();
+    const modalTitle = document.getElementById('group-modal-title');
+    if (modalTitle) {
+      modalTitle.textContent = `Новая группа соединений (${activeRack?.name || 'Стойка'})`;
+    }
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');

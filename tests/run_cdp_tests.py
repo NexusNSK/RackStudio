@@ -323,6 +323,39 @@ async def run_test_suite():
         filter_pills_count = await client.eval("document.querySelectorAll('#workplace-filter-bar .filter-pill').length")
         record("Workplace Filter Bar renders interactive pills", filter_pills_count >= 2, f"{filter_pills_count} filter pills (ALL + groups)")
 
+        # Verify Rack Isolation of Connection Groups
+        rack1_id = await client.eval("window.store.getRacks()[0].id")
+        rack1_groups_count = await client.eval(f"window.store.getGroups('{rack1_id}').length")
+        record("Connection group is strictly isolated to active rack", rack1_groups_count == 0, f"Rack 1 groups: {rack1_groups_count}, Active Rack 2 groups: 1")
+
+        # Switch to Rack 1 and verify its workplace bar has 0 groups (only 'ALL')
+        await client.eval(f"window.store.setActiveRack('{rack1_id}')")
+        await asyncio.sleep(0.3)
+        rack1_pills = await client.eval("document.querySelectorAll('#workplace-filter-bar .filter-pill').length")
+        record("Workplace bar updates on rack switch showing only its own groups", rack1_pills == 1, f"Found {rack1_pills} pill ('ALL') on Rack 1")
+
+        # Create a dedicated group for Rack 1
+        rack1_group_id = await client.eval("""
+            (() => {
+                const g = window.store.addGroup('АРМ Бухгалтер (Кабинет 101)', '#ffbb00', 10);
+                return g ? g.id : null;
+            })()
+        """)
+        await asyncio.sleep(0.3)
+        record("Add dedicated group to Rack 1", bool(rack1_group_id))
+
+        # Switch back to Rack 2
+        rack2_id = await client.eval("window.store.getRacks()[1].id")
+        await client.eval(f"window.store.setActiveRack('{rack2_id}')")
+        await asyncio.sleep(0.3)
+        rack2_has_only_own_group = await client.eval(f"""
+            (() => {{
+                const grps = window.store.getGroups();
+                return grps.length === 1 && grps[0].id === '{new_group_id}';
+            }})()
+        """)
+        record("Switching back to Rack 2 restores only Rack 2's isolated groups", rack2_has_only_own_group)
+
         # -------------------------------------------------------------
         # TEST 5: Cable Patching & SVG Bézier Curves
         # -------------------------------------------------------------
@@ -503,11 +536,11 @@ async def run_test_suite():
         record("Switch rack via '#rack-select' dropdown", active_u_switched == 24, f"Active switched to: {active_u_switched}U rack")
 
         # --- NEW: Delete Connection Group ---
-        groups_before = await client.eval("window.store.getGroups().length")
+        groups_before = await client.eval("window.store.getAllGroups().length")
         await client.eval(f"window.deleteGroupConfirm('{new_group_id}')")
         await asyncio.sleep(0.3)
-        groups_after = await client.eval("window.store.getGroups().length")
-        record("Delete connection group from system", groups_after == groups_before - 1, f"Groups: {groups_before} -> {groups_after}")
+        groups_after = await client.eval("window.store.getAllGroups().length")
+        record("Delete connection group from system", groups_after == groups_before - 1, f"Total groups: {groups_before} -> {groups_after}")
 
         # --- NEW: Delete Device Template from Pool ---
         templates_before = await client.eval("window.store.getTemplates().length")
