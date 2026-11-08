@@ -12,11 +12,14 @@ import { TemplateBuilder } from './template-builder.js';
 window.openAddRackModal = () => (window.app ? window.app.openAddRackModal() : null);
 window.openEditRackModal = (id) => (window.app ? window.app.openEditRackModal(id) : null);
 window.closeRackModal = () => (window.app ? window.app.closeRackModal() : null);
+window.deleteRackConfirm = (id) => (window.app ? window.app.deleteRackConfirm(id) : null);
 window.openAddGroupModal = () => (window.app ? window.app.openAddGroupModal() : null);
 window.closeAddGroupModal = () => (window.app ? window.app.closeAddGroupModal() : null);
+window.deleteGroupConfirm = (id, e) => (window.app ? window.app.deleteGroupConfirm(id, e) : null);
 window.openDevicePalette = (u) => (window.app ? window.app.openDevicePalette(u) : null);
 window.openDevicePaletteForUnit = (u) => (window.app ? window.app.openDevicePalette(u) : null);
 window.closeDevicePalette = () => (window.app ? window.app.closeDevicePalette() : null);
+window.deleteTemplateFromPalette = (id, e) => (window.app ? window.app.deleteTemplateFromPalette(id, e) : null);
 window.openTemplateBuilder = () => (window.app ? window.app.templateBuilder.open() : null);
 
 class App {
@@ -45,12 +48,58 @@ class App {
     window.openDevicePalette = (u) => this.openDevicePalette(u);
     window.openDevicePaletteForUnit = (u) => this.openDevicePalette(u);
     window.closeDevicePalette = () => this.closeDevicePalette();
+    window.deleteTemplateFromPalette = (id, e) => this.deleteTemplateFromPalette(id, e);
     window.openTemplateBuilder = () => this.templateBuilder.open();
     window.openAddRackModal = () => this.openAddRackModal();
     window.openEditRackModal = (id) => this.openEditRackModal(id);
     window.closeRackModal = () => this.closeRackModal();
+    window.deleteRackConfirm = (id) => this.deleteRackConfirm(id);
     window.openAddGroupModal = () => this.openAddGroupModal();
     window.closeAddGroupModal = () => this.closeAddGroupModal();
+    window.deleteGroupConfirm = (id, e) => this.deleteGroupConfirm(id, e);
+  }
+
+  deleteRackConfirm(rackId) {
+    const rack = store.getRacks().find(r => r.id === rackId) || store.getActiveRack();
+    if (!rack) return;
+    if (store.getRacks().length <= 1) {
+      alert(`Нельзя удалить единственную стойку "${rack.name}". В проекте должна оставаться минимум одна серверная стойка.`);
+      return;
+    }
+    const devsCount = rack.installedDevices.length;
+    const confirmMsg = devsCount > 0
+      ? `Удалить серверную стойку "${rack.name}" (${rack.uHeight}U) и все смонтированные в ней устройства (${devsCount} шт.) и кабели?`
+      : `Удалить серверную стойку "${rack.name}" (${rack.uHeight}U)?`;
+
+    if (confirm(confirmMsg)) {
+      store.deleteRack(rack.id);
+      this.closeRackModal();
+    }
+  }
+
+  deleteGroupConfirm(groupId, e) {
+    if (e) e.stopPropagation();
+    const grp = store.getGroup(groupId);
+    if (!grp) return;
+    const cablesInGroup = store.state.cables.filter(c => c.groupId === groupId).length;
+    const confirmMsg = cablesInGroup > 0
+      ? `Удалить группу соединений "${grp.name}"? ${cablesInGroup} кабелей будут отвязаны от группы.`
+      : `Удалить группу соединений "${grp.name}"?`;
+
+    if (confirm(confirmMsg)) {
+      store.deleteGroup(groupId);
+      this.renderGroupModalList();
+    }
+  }
+
+  deleteTemplateFromPalette(tplId, e) {
+    if (e) e.stopPropagation();
+    const tpl = store.getTemplate(tplId);
+    if (!tpl) return;
+    if (confirm(`Удалить устройство "${tpl.name}" (${tpl.vendor}) из пула оборудования?`)) {
+      store.deleteTemplate(tplId);
+      this.openDevicePalette(this.targetPaletteU);
+    }
   }
 
   initEventListeners() {
@@ -206,7 +255,13 @@ class App {
         this.renderDetailsDrawer();
       } else if (event.startsWith('group_')) {
         this.renderWorkplaceFilterBadges();
+        this.renderGroupModalList();
         this.cableRenderer.render();
+      } else if (event.startsWith('template_')) {
+        const pModal = document.getElementById('palette-modal');
+        if (pModal && (!pModal.classList.contains('hidden') || pModal.style.display === 'flex')) {
+          this.openDevicePalette(this.targetPaletteU);
+        }
       }
     });
   }
@@ -238,14 +293,29 @@ class App {
       racksList.innerHTML = racks.map(r => {
         const isActive = r.id === activeRack?.id;
         return `
-          <button class="w-full text-left p-2.5 rounded-lg text-xs font-medium border transition flex items-center justify-between ${isActive ? 'bg-cyan-950/50 text-cyan-200 border-cyan-700/80 shadow-sm' : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border-slate-800'}"
-                  onclick="store.setActiveRack('${r.id}')">
-            <div class="truncate pr-1">
-              <div class="font-bold truncate text-slate-200">${r.name}</div>
+          <div class="group relative flex items-center justify-between p-2 rounded-lg text-xs font-medium border transition ${isActive ? 'bg-cyan-950/50 text-cyan-200 border-cyan-700/80 shadow-sm' : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border-slate-800'}">
+            <button class="flex-1 text-left cursor-pointer truncate pr-1"
+                    onclick="store.setActiveRack('${r.id}')">
+              <div class="font-bold truncate text-slate-200 flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full ${isActive ? 'bg-emerald-400 shadow-[0_0_6px_#34d399]' : 'bg-slate-700'} shrink-0"></span>
+                <span class="truncate">${r.name}</span>
+              </div>
               <div class="text-[10px] text-slate-500 font-mono mt-0.5">${r.uHeight}U • ${r.installedDevices.length} устр.</div>
+            </button>
+            <div class="flex items-center gap-1 shrink-0">
+              <button class="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition"
+                      title="Настройки стойки"
+                      onclick="window.openEditRackModal('${r.id}'); event.stopPropagation();">
+                ⚙
+              </button>
+              ${racks.length > 1 ? `
+              <button class="p-1 text-slate-500 hover:text-red-400 rounded hover:bg-red-950/60 transition"
+                      title="Удалить стойку"
+                      onclick="window.deleteRackConfirm('${r.id}'); event.stopPropagation();">
+                🗑
+              </button>` : ''}
             </div>
-            <span class="w-2 h-2 rounded-full ${isActive ? 'bg-emerald-400 shadow-[0_0_6px_#34d399]' : 'bg-slate-700'} shrink-0 ml-1"></span>
-          </button>
+          </div>
         `;
       }).join('');
     }
@@ -352,13 +422,21 @@ class App {
       const count = allCables.filter(c => c.groupId === g.id).length;
 
       html += `
-        <button class="filter-pill flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${isSelected ? 'ring-1 text-white shadow-md' : 'bg-slate-800/80 text-slate-300 hover:text-white border border-slate-700/60'}"
-                style="${isSelected ? `background: ${g.color}25; border: 1px solid ${g.color}; box-shadow: 0 0 10px ${g.color}33;` : ''}"
-                data-group-id="${g.id}">
-          <span class="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm" style="background:${g.color}"></span>
-          <span class="truncate max-w-[160px]">${g.name}</span>
-          <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-900/80 font-mono" style="color:${g.color}">${count}</span>
-        </button>
+        <div class="group/pill flex items-center rounded-lg overflow-hidden border ${isSelected ? '' : 'border-slate-700/60'}"
+             style="${isSelected ? `border: 1px solid ${g.color}; box-shadow: 0 0 10px ${g.color}33;` : ''}">
+          <button class="filter-pill flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition ${isSelected ? 'text-white' : 'bg-slate-800/80 text-slate-300 hover:text-white'}"
+                  style="${isSelected ? `background: ${g.color}25;` : ''}"
+                  data-group-id="${g.id}">
+            <span class="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm" style="background:${g.color}"></span>
+            <span class="truncate max-w-[140px]">${g.name}</span>
+            <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-900/80 font-mono" style="color:${g.color}">${count}</span>
+          </button>
+          <button class="px-1.5 py-1.5 text-slate-500 hover:text-red-400 bg-slate-850 hover:bg-red-950/80 transition text-xs border-l border-slate-700/50"
+                  title="Удалить группу '${g.name}'"
+                  onclick="window.deleteGroupConfirm('${g.id}', event)">
+            ✕
+          </button>
+        </div>
       `;
     });
 
@@ -396,10 +474,17 @@ class App {
           <span class="text-[10px] text-slate-500">
             ${tpl.style?.customImage ? '★ Фото-панель' : 'Стандартный рендер'}
           </span>
-          <button class="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-lg shadow-md transition"
-                  onclick="window.installTemplateFromPalette('${tpl.id}')">
-            Установить в стойку
-          </button>
+          <div class="flex items-center gap-2">
+            <button class="px-2.5 py-1.5 text-slate-400 hover:text-red-400 hover:bg-red-950/60 border border-slate-700 hover:border-red-800 rounded-lg text-xs transition"
+                    title="Удалить устройство из пула оборудования"
+                    onclick="window.deleteTemplateFromPalette('${tpl.id}', event)">
+              🗑
+            </button>
+            <button class="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-lg shadow-md transition"
+                    onclick="window.installTemplateFromPalette('${tpl.id}')">
+              Установить в стойку
+            </button>
+          </div>
         </div>
       </div>
     `).join('');
@@ -430,6 +515,38 @@ class App {
     this.targetPaletteU = null;
   }
 
+  renderGroupModalList() {
+    const list = document.getElementById('group-existing-list');
+    if (!list) return;
+    const groups = store.getGroups();
+    const allCables = store.state.cables;
+
+    if (groups.length === 0) {
+      list.innerHTML = '<div class="text-[11px] text-slate-500 italic p-1">Групп пока нет. Создайте первую группу выше.</div>';
+      return;
+    }
+
+    list.innerHTML = groups.map(g => {
+      const cablesCount = allCables.filter(c => c.groupId === g.id).length;
+      return `
+        <div class="flex items-center justify-between p-2 rounded-lg bg-slate-900/90 border border-slate-800 text-xs">
+          <div class="flex items-center gap-2 truncate">
+            <span class="w-3 h-3 rounded-full shrink-0 shadow-sm" style="background:${g.color}"></span>
+            <div class="truncate">
+              <span class="font-bold text-white">${g.name}</span>
+              <span class="text-[10px] text-slate-400 font-mono ml-1.5">VLAN ${g.vlan || 10} • ${cablesCount} кабелей</span>
+            </div>
+          </div>
+          <button type="button" class="px-2 py-1 text-slate-400 hover:text-red-400 hover:bg-red-950/60 rounded text-xs transition border border-transparent hover:border-red-900"
+                  title="Удалить группу"
+                  onclick="window.deleteGroupConfirm('${g.id}', event)">
+            🗑 Удалить
+          </button>
+        </div>
+      `;
+    }).join('');
+  }
+
   openAddGroupModal() {
     const modal = document.getElementById('group-modal');
     if (!modal) return;
@@ -437,6 +554,8 @@ class App {
     modal.classList.remove('hidden');
     modal.classList.add('flex');
     modal.style.display = 'flex';
+
+    this.renderGroupModalList();
 
     const form = document.getElementById('group-form');
     form.onsubmit = (e) => {
@@ -448,7 +567,9 @@ class App {
 
       if (name) {
         store.addGroup(name, color, vlan, desc);
-        this.closeAddGroupModal();
+        document.getElementById('grp-name-input').value = '';
+        this.renderGroupModalList();
+        this.renderWorkplaceFilterBadges();
       }
     };
   }

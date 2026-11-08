@@ -502,13 +502,47 @@ async def run_test_suite():
         active_u_switched = await client.eval("window.store.getActiveRack().uHeight")
         record("Switch rack via '#rack-select' dropdown", active_u_switched == 24, f"Active switched to: {active_u_switched}U rack")
 
+        # --- NEW: Delete Connection Group ---
+        groups_before = await client.eval("window.store.getGroups().length")
+        await client.eval(f"window.deleteGroupConfirm('{new_group_id}')")
+        await asyncio.sleep(0.3)
+        groups_after = await client.eval("window.store.getGroups().length")
+        record("Delete connection group from system", groups_after == groups_before - 1, f"Groups: {groups_before} -> {groups_after}")
+
+        # --- NEW: Delete Device Template from Pool ---
+        templates_before = await client.eval("window.store.getTemplates().length")
+        custom_tpl_id = await client.eval("""
+            (() => {
+                const tpls = window.store.getTemplates();
+                const found = tpls.find(t => t.name.includes('Мой Кастомный Маршрутизатор 2U'));
+                return found ? found.id : null;
+            })()
+        """)
+        await client.eval(f"window.deleteTemplateFromPalette('{custom_tpl_id}')")
+        await asyncio.sleep(0.3)
+        templates_after = await client.eval("window.store.getTemplates().length")
+        record("Delete device template from device pool", templates_after == templates_before - 1, f"Templates: {templates_before} -> {templates_after}")
+
+        # --- NEW: Delete Server Rack ---
+        racks_before = await client.eval("window.store.getRacks().length")
+        rack_to_del_id = await client.eval("""
+            (() => {
+                const r = window.store.getRacks();
+                return r.length > 1 ? r[1].id : null;
+            })()
+        """)
+        await client.eval(f"window.deleteRackConfirm('{rack_to_del_id}')")
+        await asyncio.sleep(0.4)
+        racks_after = await client.eval("window.store.getRacks().length")
+        record("Delete server rack from system", racks_after == racks_before - 1, f"Racks: {racks_before} -> {racks_after}")
+
         # -------------------------------------------------------------
         # TEST 9: Export / Import JSON & Reset
         # -------------------------------------------------------------
         print("\n--- Test Suite 9: JSON Persistence & Export ---")
         export_data = await client.eval("JSON.stringify(window.store.state)")
         parsed = json.loads(export_data)
-        has_racks = len(parsed.get("racks", [])) >= 2
+        has_racks = len(parsed.get("racks", [])) >= 1
         record("State serializes valid JSON schema with racks, cables, and templates", has_racks, f"{len(parsed.get('racks', []))} racks in JSON")
 
         # -------------------------------------------------------------

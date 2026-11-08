@@ -11,3 +11,7 @@ desktop.ini
 
 # Logs
 *.log
+
+# Test profiles
+tests/.*
+tests/*_profile/

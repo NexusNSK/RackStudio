@@ -43,9 +43,23 @@ export class RackRenderer {
             <span class="font-bold text-slate-200 tracking-wide">${rack.name}</span>
             <span class="text-[11px] px-2 py-0.5 bg-slate-800 rounded text-slate-400 font-mono">${uHeight}U 19"</span>
           </div>
-          <div class="flex items-center gap-4 text-[11px]">
-            <span>Занято: <b class="text-cyan-400">${rack.installedDevices.length} устройств</b></span>
+          <div class="flex items-center gap-3 text-[11px]">
+            <span>Занято: <b class="text-cyan-400">${rack.installedDevices.length} устр.</b></span>
             <span>Мощность: <b class="text-amber-400">${this.calculateTotalPower(rack)} Вт</b></span>
+            <div class="h-3.5 w-px bg-slate-800 mx-0.5"></div>
+            <button class="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[11px] border border-slate-700/80 transition flex items-center gap-1"
+                    title="Настройки стойки"
+                    onclick="window.openEditRackModal('${rack.id}')">
+              <span>⚙</span>
+              <span>Настройки</span>
+            </button>
+            ${store.getRacks().length > 1 ? `
+            <button class="px-2 py-0.5 bg-red-950/60 hover:bg-red-900 text-red-300 rounded text-[11px] border border-red-800/80 transition flex items-center gap-1"
+                    title="Удалить стойку"
+                    onclick="window.deleteRackConfirm('${rack.id}')">
+              <span>🗑</span>
+              <span>Удалить стойку</span>
+            </button>` : ''}
           </div>
         </div>
 

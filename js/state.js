@@ -358,6 +358,11 @@ class StateStore {
     this.notify('template_updated', { template: tpl });
   }
 
+  deleteTemplate(tplId) {
+    this.state.templates = this.state.templates.filter(t => t.id !== tplId);
+    this.notify('template_deleted', { templateId: tplId });
+  }
+
   // Selection & UI helpers
   setSelection(entity) {
     this.selectedEntity = entity;

@@ -500,6 +500,13 @@
         </div>
       </form>
 
+      <div id="group-existing-list-wrap" class="mt-4 pt-3 border-t border-slate-800">
+        <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Существующие группы</div>
+        <div id="group-existing-list" class="space-y-1.5 max-h-44 overflow-y-auto">
+          <!-- Populated by app.js -->
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -552,7 +559,7 @@
         </div>
 
         <div class="pt-3 border-t border-slate-800 flex items-center justify-between">
-          <button type="button" id="btn-delete-rack-modal" class="text-red-400 hover:text-red-300 text-xs px-2.5 py-1.5 rounded hover:bg-red-950/60 hidden">
+          <button type="button" id="btn-delete-rack-modal" onclick="window.deleteRackConfirm(window.app && window.app.editingRackId)" class="text-red-400 hover:text-red-300 text-xs px-2.5 py-1.5 rounded hover:bg-red-950/60 hidden">
             🗑 Удалить стойку
           </button>
           <div class="flex items-center gap-2 ml-auto">
@@ -566,7 +573,7 @@
   </div>
 
   <!-- Main Application Script (ESM) -->
-  <script type="module" src="js/app.js?v=8"></script>
+  <script type="module" src="js/app.js?v=9"></script>
 
 </body>
 </html>
