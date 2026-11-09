@@ -689,7 +689,7 @@ export class TemplateBuilder {
     }
 
     const tpl = store.addTemplate(this.currentTemplate);
-    alert(`Шаблон "${tpl.name}" успешно сохранен в библиотеку! Теперь его можно установить в любую стойку через "+ Устройство".`);
+    alert(`Шаблон "${tpl.name}" успешно сохранен в библиотеку! Теперь его можно установить в любую стойку через "Устройство".`);
     this.close();
   }
 }
