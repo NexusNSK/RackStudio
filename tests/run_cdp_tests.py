@@ -13,6 +13,11 @@ import time
 import urllib.request
 import websockets
 
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 EDGE_PATH = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 TEST_URL = "http://localhost:8080/index.html"
 PORT = 9222
@@ -99,6 +104,20 @@ class CDPClient:
             await self.ws.close()
 
 
+def ensure_server():
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8080/index.html", timeout=0.8) as resp:
+            if resp.getcode() == 200:
+                return None
+    except Exception:
+        pass
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cmd = [sys.executable, "-m", "http.server", "8080", "--directory", root_dir]
+    server_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(1.0)
+    return server_proc
+
+
 def launch_browser():
     profile_dir = os.path.join(USER_DATA_DIR, str(int(time.time() * 1000)))
     os.makedirs(profile_dir, exist_ok=True)
@@ -141,6 +160,7 @@ async def run_test_suite():
     print("=" * 70)
 
     print("\n[1/9] Launching Chromium (Edge) in headless mode with remote debugging...")
+    server_proc = ensure_server()
     proc = launch_browser()
     test_results = []
 
@@ -158,6 +178,16 @@ async def run_test_suite():
         # Step 1: Navigate to app
         print(f"[3/9] Navigating to {TEST_URL} ...")
         await client.send("Page.navigate", {"url": TEST_URL})
+        for _ in range(50):
+            ready = await client.eval("typeof window.app === 'object' && typeof window.store === 'object'")
+            if ready:
+                break
+            await asyncio.sleep(0.1)
+
+        # Reset localStorage and reload to guarantee fresh test isolation
+        await client.eval("localStorage.clear(); sessionStorage.clear();")
+        await client.send("Page.reload")
+        await asyncio.sleep(0.5)
         for _ in range(50):
             ready = await client.eval("typeof window.app === 'object' && typeof window.store === 'object'")
             if ready:
@@ -357,7 +387,7 @@ async def run_test_suite():
         record("Switching back to Rack 2 restores only Rack 2's isolated groups", rack2_has_only_own_group)
 
         # -------------------------------------------------------------
-        # TEST 5: Cable Patching & SVG Bézier Curves
+        # TEST 5: Cable Patching & SVG Bezier Curves
         # -------------------------------------------------------------
         print("\n--- Test Suite 5: Cable Patching & Selection Drawer ---")
         cable_connected = await client.eval(f"""
@@ -384,7 +414,7 @@ async def run_test_suite():
 
         # Check SVG cable path rendered
         svg_cables_count = await client.eval("document.querySelectorAll('#cables-svg .cable-group').length")
-        record("SVG Cable Layer renders Bézier curve for patch cord", svg_cables_count >= 1, f"Rendered {svg_cables_count} cable path(s)")
+        record("SVG Cable Layer renders Bezier curve for patch cord", svg_cables_count >= 1, f"Rendered {svg_cables_count} cable path(s)")
 
         # Select cable to inspect details in drawer
         await client.eval(f"window.store.setSelection({{ type: 'cable', id: '{cable_connected}' }})")
@@ -607,6 +637,12 @@ async def run_test_suite():
             proc.wait(timeout=2)
         except Exception:
             pass
+        if server_proc:
+            try:
+                server_proc.terminate()
+                server_proc.wait(timeout=2)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

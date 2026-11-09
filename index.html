@@ -61,6 +61,12 @@
         <button id="btn-add-rack" onclick="window.openAddRackModal()" class="px-2.5 py-1 bg-cyan-950/90 hover:bg-cyan-900 text-cyan-300 border border-cyan-800/80 rounded-lg text-xs font-semibold flex items-center gap-1 transition shadow-sm" title="Создать новую стойку">
           <span>+ Стойка</span>
         </button>
+
+        <!-- Server Sync Indicator -->
+        <div id="cloud-sync-status" class="hidden sm:flex items-center gap-1.5 ml-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] font-mono select-none" title="Статус синхронизации">
+          <span id="sync-dot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+          <span id="sync-text" class="text-slate-400">Локально</span>
+        </div>
       </div>
     </div>
 

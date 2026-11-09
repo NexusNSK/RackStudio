@@ -12,6 +12,18 @@ class StateStore {
     this.state = this.loadState();
     this.cableDraft = null;
     this.selectedEntity = null;
+
+    // Централизованная синхронизация с сервером
+    this.apiBase = '/rackstudio-api';
+    this.isServerAvailable = false;
+    this.syncStatus = 'local';
+    this.syncMessage = 'Локальный режим';
+    this.lastServerModified = 0;
+    this.saveDebounceTimer = null;
+    this.pollTimer = null;
+    this.isApplyingRemote = false;
+
+    this.initServerSync();
   }
 
   loadState() {
@@ -57,6 +69,125 @@ class StateStore {
     } catch (e) {
       console.error('Failed to save state to localStorage', e);
     }
+
+    if (this.isApplyingRemote) return;
+
+    // Отправляем изменения на сервер с дебаунсом (400мс)
+    if (this.isServerAvailable) {
+      this.setSyncStatus('saving', 'Сохранение...');
+      clearTimeout(this.saveDebounceTimer);
+      this.saveDebounceTimer = setTimeout(() => {
+        this.pushStateToServer();
+      }, 400);
+    }
+  }
+
+  // --- Методы работы с сервером ---
+
+  initServerSync() {
+    // 1. Первая попытка загрузки актуального состояния с сервера
+    this.fetchServerState().then(connected => {
+      if (connected) {
+        this.startPolling();
+      }
+    });
+
+    // 2. Дополнительная проверка при возвращении пользователя на вкладку
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && this.isServerAvailable) {
+        this.checkRemoteUpdates();
+      }
+    });
+  }
+
+  async fetchServerState() {
+    try {
+      const resp = await fetch(`${this.apiBase}/state`, { cache: 'no-store' });
+      if (resp.status === 204) {
+        // На сервере ещё нет сохранённого проекта — отправляем локальный
+        this.isServerAvailable = true;
+        this.setSyncStatus('saving', 'Инициализация сервера...');
+        await this.pushStateToServer();
+        return true;
+      }
+      if (resp.ok) {
+        const remoteState = await resp.json();
+        if (remoteState && Array.isArray(remoteState.racks)) {
+          this.isApplyingRemote = true;
+          this.state = remoteState;
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+          } catch (e) {}
+          this.isApplyingRemote = false;
+          this.isServerAvailable = true;
+          this.lastServerModified = Date.now();
+          this.setSyncStatus('synced', 'Синхронизировано');
+          this.notifyOnly('remote_state_updated', this.state);
+          return true;
+        }
+      } else {
+        this.isServerAvailable = false;
+        this.setSyncStatus('local', 'Локальный режим');
+        return false;
+      }
+    } catch (e) {
+      // Сервер недоступен (например, автономный запуск без BrigApp)
+      this.isServerAvailable = false;
+      this.setSyncStatus('local', 'Локальный режим');
+      return false;
+    }
+    return false;
+  }
+
+  async pushStateToServer() {
+    try {
+      const resp = await fetch(`${this.apiBase}/state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.state)
+      });
+      if (resp.ok) {
+        const meta = await resp.json().catch(() => ({}));
+        this.lastServerModified = meta.lastModified || Date.now();
+        this.isServerAvailable = true;
+        this.setSyncStatus('synced', 'Синхронизировано');
+      } else {
+        console.warn('Сервер вернул ошибку сохранения:', resp.status);
+        this.setSyncStatus('error', 'Ошибка сохранения');
+      }
+    } catch (err) {
+      console.warn('Сетевая ошибка при отправке на сервер:', err);
+      this.setSyncStatus('error', 'Ошибка сети');
+    }
+  }
+
+  async checkRemoteUpdates() {
+    if (!this.isServerAvailable || this.cableDraft || this.isApplyingRemote) return;
+    try {
+      const resp = await fetch(`${this.apiBase}/state/version`, { cache: 'no-store' });
+      if (resp.ok) {
+        const meta = await resp.json();
+        if (meta.lastModified && meta.lastModified > this.lastServerModified) {
+          console.log('[RackStudio] Обнаружено новое состояние на сервере, загрузка...');
+          await this.fetchServerState();
+        }
+      }
+    } catch (e) {
+      // Игнорируем фоновые ошибки сети
+    }
+  }
+
+  startPolling() {
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.pollTimer = setInterval(() => {
+      this.checkRemoteUpdates();
+    }, 6000);
+  }
+
+  setSyncStatus(status, message) {
+    this.syncStatus = status;
+    this.syncMessage = message;
+    this.notifyOnly('sync_status_changed', { status, message });
   }
 
   subscribe(listener) {
@@ -66,6 +197,10 @@ class StateStore {
 
   notify(event, payload) {
     this.saveState();
+    this.notifyOnly(event, payload);
+  }
+
+  notifyOnly(event, payload) {
     this.listeners.forEach(fn => {
       try {
         fn(event, payload, this.state);

@@ -39,6 +39,7 @@ class App {
     this.subscribeState();
 
     this.renderAll();
+    this.updateSyncBadge({ status: store.syncStatus, message: store.syncMessage });
   }
 
   initGlobalWindowExposures() {
@@ -236,11 +237,13 @@ class App {
 
   subscribeState() {
     store.subscribe((event, payload) => {
-      if (event === 'rack_changed' || event === 'rack_added' || event === 'rack_deleted' || event === 'rack_updated' || event === 'state_imported' || event === 'state_reset') {
+      if (event === 'rack_changed' || event === 'rack_added' || event === 'rack_deleted' || event === 'rack_updated' || event === 'state_imported' || event === 'state_reset' || event === 'remote_state_updated') {
         this.updateRackSelector();
         this.renderWorkplaceFilterBadges();
         this.rackRenderer.render();
         this.cableRenderer.render();
+      } else if (event === 'sync_status_changed') {
+        this.updateSyncBadge(payload);
       } else if (event === 'group_filter_changed' || event === 'filter_settings_changed') {
         this.renderWorkplaceFilterBadges();
         this.rackRenderer.render();
@@ -271,6 +274,31 @@ class App {
     this.renderWorkplaceFilterBadges();
     this.rackRenderer.render();
     this.renderDetailsDrawer();
+  }
+
+  updateSyncBadge(payload) {
+    const badge = document.getElementById('cloud-sync-status');
+    const dot = document.getElementById('sync-dot');
+    const text = document.getElementById('sync-text');
+    if (!badge || !dot || !text) return;
+
+    const { status, message } = payload || {};
+    text.textContent = message || '';
+
+    dot.className = 'w-2 h-2 rounded-full transition-colors';
+    if (status === 'synced') {
+      dot.classList.add('bg-emerald-400');
+      badge.setAttribute('title', 'Единое состояние синхронизировано с сервером');
+    } else if (status === 'saving') {
+      dot.classList.add('bg-amber-400', 'animate-pulse');
+      badge.setAttribute('title', 'Сохранение изменений на сервер...');
+    } else if (status === 'error') {
+      dot.classList.add('bg-rose-500');
+      badge.setAttribute('title', 'Ошибка связи с сервером');
+    } else {
+      dot.classList.add('bg-slate-500');
+      badge.setAttribute('title', 'Автономный режим (сохраняется в браузере)');
+    }
   }
 
   updateRackSelector() {
