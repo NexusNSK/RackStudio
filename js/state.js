@@ -412,12 +412,16 @@ class StateStore {
       this.removeCable(existingTo.id);
     }
 
+    const groupId = cableData.groupId || (this.state.activeGroupFilter !== 'ALL' ? this.state.activeGroupFilter : '');
+    const group = groupId ? this.getGroup(groupId) : null;
+    const defaultColor = group?.color || '#3b82f6';
+
     const newCable = {
       id: `c-${Date.now()}`,
-      groupId: cableData.groupId || (this.state.activeGroupFilter !== 'ALL' ? this.state.activeGroupFilter : ''),
+      groupId,
       from: cableData.from,
       to: cableData.to,
-      color: cableData.color || (cableData.groupId ? this.getGroup(cableData.groupId)?.color : '#3b82f6') || '#3b82f6',
+      color: cableData.color || defaultColor,
       type: cableData.type || 'Cat6 UTP',
       lengthM: cableData.lengthM || 0.5,
       label: cableData.label || ''

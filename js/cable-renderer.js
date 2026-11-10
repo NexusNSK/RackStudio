@@ -209,10 +209,14 @@ export class CableRenderer {
 
     const pathData = this.generatePath(p1, p2, 0);
 
+    const activeGroupId = store.getActiveGroupFilter();
+    const activeGroup = activeGroupId !== 'ALL' ? store.getGroup(activeGroupId) : null;
+    const draftColor = activeGroup?.color || '#00d2ff';
+
     const draftPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     draftPath.setAttribute('d', pathData);
     draftPath.setAttribute('fill', 'none');
-    draftPath.setAttribute('stroke', '#00d2ff');
+    draftPath.setAttribute('stroke', draftColor);
     draftPath.setAttribute('stroke-width', '3');
     draftPath.setAttribute('stroke-dasharray', '6 4');
     draftPath.setAttribute('class', 'animate-pulse');
@@ -221,14 +225,13 @@ export class CableRenderer {
     startCircle.setAttribute('cx', p1.x);
     startCircle.setAttribute('cy', p1.y);
     startCircle.setAttribute('r', '5');
-    startCircle.setAttribute('fill', '#00d2ff');
+    startCircle.setAttribute('fill', draftColor);
 
     const endCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     endCircle.setAttribute('cx', p2.x);
     endCircle.setAttribute('cy', p2.y);
     endCircle.setAttribute('r', '4');
-    endCircle.setAttribute('fill', '#00d2ff');
-
+    endCircle.setAttribute('fill', draftColor);
     draftLayer.appendChild(draftPath);
     draftLayer.appendChild(startCircle);
     draftLayer.appendChild(endCircle);

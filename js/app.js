@@ -255,7 +255,10 @@ class App {
         this.renderWorkplaceFilterBadges();
         this.rackRenderer.render();
         this.cableRenderer.render();
-        this.renderDetailsDrawer();
+        // Do not re-render drawer on update to prevent stealing input focus
+        if (event !== 'device_updated' && event !== 'cable_updated') {
+          this.renderDetailsDrawer();
+        }
       } else if (event.startsWith('group_')) {
         this.renderWorkplaceFilterBadges();
         this.renderGroupModalList();
@@ -789,9 +792,12 @@ class App {
       content.querySelector('#drawer-cable-group')?.addEventListener('change', (e) => {
         const gid = e.target.value;
         const grp = store.getGroup(gid);
+        const newColor = grp ? grp.color : cable.color;
+        const colorInput = content.querySelector('#drawer-cable-color');
+        if (colorInput) colorInput.value = newColor;
         store.updateCable(cable.id, {
           groupId: gid,
-          color: grp ? grp.color : cable.color
+          color: newColor
         });
       });
 
