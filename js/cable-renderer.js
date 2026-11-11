@@ -28,10 +28,62 @@ export class CableRenderer {
       }
     });
 
+    // Hover Spotlight: подсветка кабелей при наведении на любой порт устройства
+    this.rackEl.addEventListener('mouseover', (e) => {
+      if (store.cableDraft) return;
+      const portEl = e.target.closest('[data-port-id][data-device-id]');
+      if (!portEl) return;
+
+      const key = `${portEl.dataset.deviceId}:${portEl.dataset.portId}`;
+      this.applyPortFocus(key);
+    });
+
+    this.rackEl.addEventListener('mouseout', (e) => {
+      const portEl = e.target.closest('[data-port-id][data-device-id]');
+      if (!portEl) return;
+      if (e.relatedTarget && portEl.contains(e.relatedTarget)) return;
+      this.clearFocus();
+    });
+
     const ro = new ResizeObserver(() => {
       this.render();
     });
     ro.observe(this.rackEl);
+  }
+
+  applyPortFocus(portKey) {
+    const cablesLayer = this.svg.querySelector('#cables-layer');
+    if (!cablesLayer) return;
+
+    const groups = cablesLayer.querySelectorAll('.cable-group');
+    let matchedAny = false;
+
+    groups.forEach((g) => {
+      if (g.dataset.fromKey === portKey || g.dataset.toKey === portKey) {
+        g.classList.add('is-focused');
+        matchedAny = true;
+
+        const peerKey = g.dataset.fromKey === portKey ? g.dataset.toKey : g.dataset.fromKey;
+        const [peerDevId, peerPortId] = peerKey.split(':');
+        const peerEl = this.rackEl.querySelector(`[data-device-id="${peerDevId}"][data-port-id="${peerPortId}"]`);
+        if (peerEl) peerEl.classList.add('port-cable-hover');
+      } else {
+        g.classList.remove('is-focused');
+      }
+    });
+
+    if (matchedAny) {
+      cablesLayer.classList.add('cables-has-focus');
+    }
+  }
+
+  clearFocus() {
+    const cablesLayer = this.svg.querySelector('#cables-layer');
+    if (cablesLayer) {
+      cablesLayer.classList.remove('cables-has-focus');
+      cablesLayer.querySelectorAll('.cable-group.is-focused').forEach(g => g.classList.remove('is-focused'));
+    }
+    this.rackEl.querySelectorAll('.port-cable-hover').forEach(el => el.classList.remove('port-cable-hover'));
   }
 
   getPortCoordinates(deviceId, portId) {
@@ -48,10 +100,21 @@ export class CableRenderer {
     };
   }
 
-  generatePath(p1, p2, cableIndex = 0) {
+  getRackBounds() {
+    const rackRect = this.rackEl.getBoundingClientRect();
+    const svgRect = this.svg.getBoundingClientRect();
+    const left = rackRect.left - svgRect.left;
+    const right = rackRect.right - svgRect.left;
+    return {
+      left,
+      right,
+      centerX: (left + right) / 2
+    };
+  }
+
+  generateArcPath(p1, p2, cableIndex = 0) {
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
-
     const verticalDistance = Math.abs(dy);
     const isAdjacent = verticalDistance < 80;
 
@@ -59,14 +122,13 @@ export class CableRenderer {
     let cx1, cy1, cx2, cy2;
 
     if (isAdjacent) {
-      slack = 38 + (cableIndex % 5) * 4;
+      slack = 36 + (cableIndex % 5) * 4;
       cx1 = p1.x + dx * 0.15;
       cy1 = p1.y + slack;
       cx2 = p2.x - dx * 0.15;
       cy2 = p2.y + slack;
     } else {
-      slack = Math.min(100, Math.max(45, verticalDistance * 0.28)) + (cableIndex % 4) * 5;
-      
+      slack = Math.min(95, Math.max(45, verticalDistance * 0.25)) + (cableIndex % 4) * 5;
       if (dy > 0) {
         cx1 = p1.x + dx * 0.2;
         cy1 = p1.y + slack;
@@ -83,15 +145,73 @@ export class CableRenderer {
     return `M ${p1.x.toFixed(1)},${p1.y.toFixed(1)} C ${cx1.toFixed(1)},${cy1.toFixed(1)} ${cx2.toFixed(1)},${cy2.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
   }
 
+  generateChannelPath(p1, p2, cableIndex = 0, channelState = null, rackBounds = null) {
+    const verticalDistance = Math.abs(p2.y - p1.y);
+    // Короткие соединения (соседние юниты или на одном устройстве) рисуем компактной дугой
+    if (verticalDistance <= 85 || !rackBounds) {
+      return this.generateArcPath(p1, p2, cableIndex);
+    }
+
+    const avgX = (p1.x + p2.x) / 2;
+    const side = avgX < rackBounds.centerX ? -1 : 1; // -1 = левый канал, +1 = правый канал
+
+    let lane = 0;
+    if (channelState) {
+      if (side === -1) {
+        lane = channelState.leftLane % 10;
+        channelState.leftLane++;
+      } else {
+        lane = channelState.rightLane % 10;
+        channelState.rightLane++;
+      }
+    }
+
+    const laneOffset = lane * 4.5;
+    const channelX = side === -1
+      ? Math.min(rackBounds.left - 14, p1.x - 26, p2.x - 26) - laneOffset
+      : Math.max(rackBounds.right + 14, p1.x + 26, p2.x + 26) + laneOffset;
+
+    const dropOffset = 14 + (lane % 4) * 3;
+    const y1Out = p1.y + dropOffset;
+    const y2Out = p2.y + dropOffset;
+    const dirY = y2Out > y1Out ? 1 : -1;
+    const r = 10;
+
+    return [
+      `M ${p1.x.toFixed(1)},${p1.y.toFixed(1)}`,
+      `Q ${p1.x.toFixed(1)},${y1Out.toFixed(1)} ${(p1.x + side * r).toFixed(1)},${y1Out.toFixed(1)}`,
+      `L ${(channelX - side * r).toFixed(1)},${y1Out.toFixed(1)}`,
+      `Q ${channelX.toFixed(1)},${y1Out.toFixed(1)} ${channelX.toFixed(1)},${(y1Out + dirY * r).toFixed(1)}`,
+      `L ${channelX.toFixed(1)},${(y2Out - dirY * r).toFixed(1)}`,
+      `Q ${channelX.toFixed(1)},${y2Out.toFixed(1)} ${(channelX - side * r).toFixed(1)},${y2Out.toFixed(1)}`,
+      `L ${(p2.x + side * r).toFixed(1)},${y2Out.toFixed(1)}`,
+      `Q ${p2.x.toFixed(1)},${y2Out.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`
+    ].join(' ');
+  }
+
+  generatePath(p1, p2, cableIndex = 0, channelState = null, rackBounds = null) {
+    const mode = store.getCableRoutingMode();
+    if (mode === 'channels') {
+      return this.generateChannelPath(p1, p2, cableIndex, channelState, rackBounds);
+    }
+    return this.generateArcPath(p1, p2, cableIndex);
+  }
+
   render() {
     const cablesLayer = this.svg.querySelector('#cables-layer');
     if (!cablesLayer) return;
     cablesLayer.innerHTML = '';
+    cablesLayer.classList.remove('cables-has-focus');
 
     const cables = store.getCablesForActiveRack();
     const activeFilter = store.getActiveGroupFilter();
     const dimInactive = store.state.dimInactiveCables;
     const selectedEntity = store.selectedEntity;
+    const isDeviceSelected = selectedEntity?.type === 'device';
+    const selectedDeviceId = isDeviceSelected ? selectedEntity.id : null;
+
+    const rackBounds = this.getRackBounds();
+    const channelState = { leftLane: 0, rightLane: 0 };
 
     cables.forEach((cable, index) => {
       const p1 = this.getPortCoordinates(cable.from.deviceId, cable.from.portId);
@@ -101,30 +221,47 @@ export class CableRenderer {
 
       const isGroupMatch = (activeFilter === 'ALL') || (cable.groupId === activeFilter);
       const isSelected = selectedEntity?.type === 'cable' && selectedEntity.id === cable.id;
+      const isDeviceMatch = !isDeviceSelected || (cable.from.deviceId === selectedDeviceId || cable.to.deviceId === selectedDeviceId);
 
       if (!isGroupMatch && !dimInactive) {
         return;
       }
 
-      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-      g.setAttribute('class', `cable-group ${isGroupMatch ? 'active-group' : 'inactive-group'} ${isSelected ? 'selected' : ''}`);
-      g.dataset.cableId = cable.id;
+      const isEffectiveActive = isGroupMatch && isDeviceMatch;
 
-      const pathData = this.generatePath(p1, p2, index);
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      g.setAttribute('class', `cable-group ${isEffectiveActive ? 'active-group' : 'inactive-group'} ${isSelected ? 'selected' : ''}`);
+      g.dataset.cableId = cable.id;
+      g.dataset.fromKey = `${cable.from.deviceId}:${cable.from.portId}`;
+      g.dataset.toKey = `${cable.to.deviceId}:${cable.to.portId}`;
+
+      const pathData = this.generatePath(p1, p2, index, channelState, rackBounds);
 
       const hitPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       hitPath.setAttribute('d', pathData);
       hitPath.setAttribute('fill', 'none');
       hitPath.setAttribute('stroke', 'transparent');
-      hitPath.setAttribute('stroke-width', '18');
+      hitPath.setAttribute('stroke-width', '16');
       hitPath.style.cursor = 'pointer';
 
+      // Тёмная подложка («эффект моста») для чёткого разделения пересекающихся кабелей
+      const casingPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      casingPath.setAttribute('d', pathData);
+      casingPath.setAttribute('fill', 'none');
+      casingPath.setAttribute('stroke', '#0b0e14');
+      casingPath.setAttribute('stroke-width', isSelected ? '7' : '4.5');
+      casingPath.setAttribute('stroke-linecap', 'round');
+      casingPath.setAttribute('stroke-linejoin', 'round');
+      casingPath.setAttribute('stroke-opacity', isEffectiveActive ? '0.92' : '0.12');
+      casingPath.setAttribute('class', 'cable-casing');
+
+      // Мягкое свечение — видно только при наведении, выборе или явном фильтре
       const shadowPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       shadowPath.setAttribute('d', pathData);
       shadowPath.setAttribute('fill', 'none');
-      shadowPath.setAttribute('stroke', isGroupMatch ? cable.color : '#444');
-      shadowPath.setAttribute('stroke-width', isSelected ? '8' : isGroupMatch && activeFilter !== 'ALL' ? '6' : '4');
-      shadowPath.setAttribute('stroke-opacity', isGroupMatch ? (isSelected ? '0.6' : '0.25') : '0.04');
+      shadowPath.setAttribute('stroke', isEffectiveActive ? cable.color : '#444');
+      shadowPath.setAttribute('stroke-width', isSelected ? '8' : '6');
+      shadowPath.setAttribute('stroke-opacity', isSelected ? '0.55' : '0');
       shadowPath.setAttribute('class', 'cable-shadow');
 
       const corePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -132,30 +269,34 @@ export class CableRenderer {
       corePath.setAttribute('fill', 'none');
       corePath.setAttribute('stroke', cable.color || '#3b82f6');
       corePath.setAttribute('stroke-linecap', 'round');
-      corePath.setAttribute('stroke-width', isSelected ? '4.5' : isGroupMatch && activeFilter !== 'ALL' ? '4' : '3');
-      
-      if (!isGroupMatch && dimInactive) {
-        corePath.setAttribute('stroke-opacity', '0.07');
-        corePath.setAttribute('stroke', '#666666');
+      corePath.setAttribute('stroke-linejoin', 'round');
+      corePath.setAttribute('stroke-width', isSelected ? '4' : (isEffectiveActive && activeFilter !== 'ALL') ? '2.8' : '2.2');
+
+      if (!isEffectiveActive) {
+        corePath.setAttribute('stroke-opacity', '0.1');
+        if (!isGroupMatch) {
+          corePath.setAttribute('stroke', '#666666');
+        }
       } else {
-        corePath.setAttribute('stroke-opacity', '0.95');
+        corePath.setAttribute('stroke-opacity', '0.9');
       }
       corePath.setAttribute('class', 'cable-core');
 
       const boot1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       boot1.setAttribute('cx', p1.x);
       boot1.setAttribute('cy', p1.y);
-      boot1.setAttribute('r', isGroupMatch ? '3.5' : '2');
+      boot1.setAttribute('r', isEffectiveActive ? '3.2' : '2');
       boot1.setAttribute('fill', cable.color);
-      boot1.setAttribute('opacity', isGroupMatch ? '1' : '0.2');
+      boot1.setAttribute('opacity', isEffectiveActive ? '1' : '0.18');
 
       const boot2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       boot2.setAttribute('cx', p2.x);
       boot2.setAttribute('cy', p2.y);
-      boot2.setAttribute('r', isGroupMatch ? '3.5' : '2');
+      boot2.setAttribute('r', isEffectiveActive ? '3.2' : '2');
       boot2.setAttribute('fill', cable.color);
-      boot2.setAttribute('opacity', isGroupMatch ? '1' : '0.2');
+      boot2.setAttribute('opacity', isEffectiveActive ? '1' : '0.18');
 
+      g.appendChild(casingPath);
       g.appendChild(shadowPath);
       g.appendChild(corePath);
       g.appendChild(boot1);
@@ -169,8 +310,8 @@ export class CableRenderer {
 
       hitPath.addEventListener('mouseenter', () => {
         this.activeHoverCableId = cable.id;
-        corePath.setAttribute('stroke-width', '5');
-        shadowPath.setAttribute('stroke-opacity', '0.6');
+        cablesLayer.classList.add('cables-has-focus');
+        g.classList.add('is-focused');
         p1.element?.classList.add('port-cable-hover');
         p2.element?.classList.add('port-cable-hover');
         this.showTooltip(cable, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2 + 20);
@@ -178,8 +319,8 @@ export class CableRenderer {
 
       hitPath.addEventListener('mouseleave', () => {
         this.activeHoverCableId = null;
-        corePath.setAttribute('stroke-width', isSelected ? '4.5' : isGroupMatch && activeFilter !== 'ALL' ? '4' : '3');
-        shadowPath.setAttribute('stroke-opacity', isGroupMatch ? '0.25' : '0.04');
+        cablesLayer.classList.remove('cables-has-focus');
+        g.classList.remove('is-focused');
         p1.element?.classList.remove('port-cable-hover');
         p2.element?.classList.remove('port-cable-hover');
         this.hideTooltip();
@@ -207,7 +348,8 @@ export class CableRenderer {
       y: store.cableDraft.clientY - svgRect.top
     };
 
-    const pathData = this.generatePath(p1, p2, 0);
+    // Для перетягивания кабеля курсором всегда используем прямую живую дугу
+    const pathData = this.generateArcPath(p1, p2, 0);
 
     const activeGroupId = store.getActiveGroupFilter();
     const activeGroup = activeGroupId !== 'ALL' ? store.getGroup(activeGroupId) : null;

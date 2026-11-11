@@ -497,6 +497,15 @@ class StateStore {
     this.notify('filter_settings_changed', { dimInactiveCables: this.state.dimInactiveCables });
   }
 
+  getCableRoutingMode() {
+    return this.state.cableRoutingMode || 'channels';
+  }
+
+  setCableRoutingMode(mode) {
+    this.state.cableRoutingMode = mode === 'arcs' ? 'arcs' : 'channels';
+    this.notify('filter_settings_changed', { cableRoutingMode: this.state.cableRoutingMode });
+  }
+
   // Templates (Custom Device Builder)
   addTemplate(tplData) {
     const newTemplate = {

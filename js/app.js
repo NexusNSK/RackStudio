@@ -21,6 +21,7 @@ window.openDevicePaletteForUnit = (u) => (window.app ? window.app.openDevicePale
 window.closeDevicePalette = () => (window.app ? window.app.closeDevicePalette() : null);
 window.deleteTemplateFromPalette = (id, e) => (window.app ? window.app.deleteTemplateFromPalette(id, e) : null);
 window.openTemplateBuilder = () => (window.app ? window.app.templateBuilder.open() : null);
+window.setCableRoutingMode = (mode) => (window.app ? window.app.setCableRoutingMode(mode) : null);
 
 class App {
   constructor() {
@@ -39,6 +40,7 @@ class App {
     this.subscribeState();
 
     this.renderAll();
+    this.updateRoutingModeUI();
     this.updateSyncBadge({ status: store.syncStatus, message: store.syncMessage });
   }
 
@@ -245,6 +247,7 @@ class App {
       } else if (event === 'sync_status_changed') {
         this.updateSyncBadge(payload);
       } else if (event === 'group_filter_changed' || event === 'filter_settings_changed') {
+        this.updateRoutingModeUI();
         this.renderWorkplaceFilterBadges();
         this.rackRenderer.render();
         this.cableRenderer.render();
@@ -277,6 +280,26 @@ class App {
     this.renderWorkplaceFilterBadges();
     this.rackRenderer.render();
     this.renderDetailsDrawer();
+  }
+
+  setCableRoutingMode(mode) {
+    store.setCableRoutingMode(mode);
+    this.updateRoutingModeUI();
+  }
+
+  updateRoutingModeUI() {
+    const mode = store.getCableRoutingMode();
+    const btnCh = document.getElementById('btn-route-channels');
+    const btnArc = document.getElementById('btn-route-arcs');
+    if (!btnCh || !btnArc) return;
+
+    if (mode === 'channels') {
+      btnCh.className = 'px-2.5 py-0.5 rounded-md text-[11px] font-medium transition bg-cyan-600 text-white shadow-sm';
+      btnArc.className = 'px-2.5 py-0.5 rounded-md text-[11px] font-medium transition text-slate-400 hover:text-slate-200';
+    } else {
+      btnArc.className = 'px-2.5 py-0.5 rounded-md text-[11px] font-medium transition bg-cyan-600 text-white shadow-sm';
+      btnCh.className = 'px-2.5 py-0.5 rounded-md text-[11px] font-medium transition text-slate-400 hover:text-slate-200';
+    }
   }
 
   updateSyncBadge(payload) {
