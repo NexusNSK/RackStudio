@@ -596,13 +596,22 @@ async def run_test_suite():
         await asyncio.sleep(0.4)
         record("Open CLI Terminal Modal for Switch", cli_opened)
 
-        # Click generate from connections button
-        await client.eval("document.getElementById('cli-generate-btn')?.click()")
-        await asyncio.sleep(0.3)
+        # Verify port auto-config button was removed and CLI config editing persists
+        cli_btn_absent = await client.eval("document.getElementById('cli-generate-btn') === null")
+        record("Switch CLI port auto-generation button is removed", cli_btn_absent)
 
-        cli_text = await client.eval("document.getElementById('cli-code-area')?.value || ''")
-        has_vlan_cfg = "vlan 30" in cli_text.lower() or "interface" in cli_text.lower()
-        record("CLI auto-generates switch config from connected ports", has_vlan_cfg, f"Config size: {len(cli_text)} chars")
+        cli_edited_ok = await client.eval("""
+            (() => {
+                const area = document.getElementById('cli-code-area');
+                if (!area) return false;
+                area.value = 'hostname Sw-Core-24\\ninterface Gi0/1\\n no shutdown\\nend';
+                area.dispatchEvent(new Event('input', { bubbles: true }));
+                const rack = window.store.getActiveRack();
+                const sw = rack.installedDevices.find(d => d.templateId === 'tpl-switch-24p');
+                return Boolean(sw && sw.cliConfig.includes('hostname Sw-Core-24'));
+            })()
+        """)
+        record("CLI editor saves manual configuration changes", bool(cli_edited_ok))
 
         # Close CLI modal
         await client.eval("document.getElementById('close-cli-modal')?.click()")
