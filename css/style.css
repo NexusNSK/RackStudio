@@ -81,6 +81,20 @@ body {
   border-color: #38bdf8 !important;
 }
 
+.port-num {
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.port-slot[data-label-pos="top"]:hover .port-num,
+.port-slot[data-label-pos="top"].port-cable-hover .port-num {
+  transform: translate(-50%, -1.5px);
+}
+
+.port-slot[data-label-pos="bottom"]:hover .port-num,
+.port-slot[data-label-pos="bottom"].port-cable-hover .port-num {
+  transform: translate(-50%, 1.5px);
+}
+
 .cable-group {
   transition: opacity 0.16s ease;
 }

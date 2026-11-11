@@ -319,6 +319,37 @@ async def run_test_suite():
         etherlighting_ports = await client.eval("document.querySelectorAll('#rack-container .port-slot').length")
         record("Etherlighting interactive ports rendered", etherlighting_ports >= 48, f"{etherlighting_ports} RJ45/SFP+ ports active")
 
+        # Verify 2-row port labels do not overlap lower-row jacks
+        two_row_labels_ok = await client.eval("""
+            (() => {
+                const swDev = document.querySelector(`#rack-container .installed-device[data-device-id="${install_switch}"]`);
+                const ppDev = document.querySelector(`#rack-container .installed-device[data-device-id="${install_patch}"]`);
+                if (!swDev || !ppDev) return false;
+                const swRect = swDev.getBoundingClientRect();
+                const p1 = swDev.querySelector('.port-slot[data-port-id="p-1"]');
+                const p2 = swDev.querySelector('.port-slot[data-port-id="p-2"]');
+                const sfp1 = swDev.querySelector('.port-slot[data-port-id="sfp-1"]');
+                const pp1 = ppDev.querySelector('.port-slot[data-port-id="p-1"]');
+                if (!p1 || !p2 || !sfp1 || !pp1) return false;
+                const p1Jack = p1.querySelector('.port-jack').getBoundingClientRect();
+                const p1Num = p1.querySelector('.port-num').getBoundingClientRect();
+                const p2Jack = p2.querySelector('.port-jack').getBoundingClientRect();
+                const p2Num = p2.querySelector('.port-num').getBoundingClientRect();
+                return (
+                    p1.dataset.labelPos === 'top' &&
+                    p2.dataset.labelPos === 'bottom' &&
+                    sfp1.dataset.labelPos === 'bottom' &&
+                    pp1.dataset.labelPos === 'bottom' &&
+                    p1Num.bottom <= p1Jack.top + 0.5 &&
+                    p1Num.bottom <= p2Jack.top &&
+                    p1Num.top >= swRect.top - 0.5 &&
+                    p2Num.top >= p2Jack.bottom - 0.5 &&
+                    p2Num.bottom <= swRect.bottom + 0.5
+                );
+            })()
+        """.replace("${install_switch}", str(install_res)).replace("${install_patch}", str(install_patch)))
+        record("Two-row top port labels placed above jacks without clipping", bool(two_row_labels_ok))
+
         # -------------------------------------------------------------
         # TEST 4: Workplace Groups & Isolation Filtering (+ Группа)
         # -------------------------------------------------------------

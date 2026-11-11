@@ -160,7 +160,7 @@ export class RackRenderer {
     }
 
     const portsHtml = (template?.ports || []).map(port => {
-      return this.renderPortElement(device, port, activeFilter);
+      return this.renderPortElement(device, port, activeFilter, template);
     }).join('');
 
     let decorationsHtml = '';
@@ -201,7 +201,18 @@ export class RackRenderer {
     `;
   }
 
-  renderPortElement(device, port, activeFilter) {
+  isUpperRowPort(port, allPorts, deviceHeightPx = 54) {
+    if (!Array.isArray(allPorts) || allPorts.length < 2) return false;
+    return allPorts.some((other) => {
+      if (!other || other === port || other.id === port.id) return false;
+      const dx = Math.abs((other.x ?? 0) - (port.x ?? 0));
+      if (dx > 4.5) return false;
+      const dyPx = (((other.y ?? 0) - (port.y ?? 0)) / 100) * deviceHeightPx;
+      return dyPx >= 10 && dyPx <= 44;
+    });
+  }
+
+  renderPortElement(device, port, activeFilter, template = null) {
     const cable = store.getCableByPort(device.id, port.id);
     const isConnected = !!cable;
     const cableGroup = cable ? store.getGroup(cable.groupId) : null;
@@ -237,24 +248,28 @@ export class RackRenderer {
       portIcon = '<span class="text-[7px] text-red-400">⚡</span>';
     }
 
+    const isSilver = !template?.style?.customImage && template?.style?.theme === 'silver';
+    const isLabelAbove = this.isUpperRowPort(port, template?.ports || [], (template?.uHeight || 1) * 54);
+
     return `
-      <div class="port-slot absolute flex flex-col items-center justify-center -translate-x-1/2 -translate-y-1/2 cursor-crosshair group transition-all"
+      <div class="port-slot absolute flex items-center justify-center -translate-x-1/2 -translate-y-1/2 cursor-crosshair group transition-all hover:z-30"
            style="left: ${port.x}%; top: ${port.y}%;"
            data-device-id="${device.id}"
            data-port-id="${port.id}"
            data-port-name="${port.name}"
-           data-port-type="${port.type}">
+           data-port-type="${port.type}"
+           data-label-pos="${isLabelAbove ? 'top' : 'bottom'}">
         
         <div class="port-jack ${portSize} rounded-[3px] border flex items-center justify-center relative ${portColorClass} transition-all duration-200 group-hover:scale-125 group-hover:border-cyan-400 group-hover:z-30"
              style="${glowStyle}">
           ${portIcon}
 
           ${isConnected ? `
-            <span class="absolute -top-1 right-0 w-1 h-1 rounded-full ${isMatch ? 'bg-emerald-400 shadow-[0_0_4px_#34d399]' : 'bg-slate-500'}"></span>
+            <span class="absolute -top-0.5 -right-0.5 w-1 h-1 rounded-full ${isMatch ? 'bg-emerald-400 shadow-[0_0_4px_#34d399]' : 'bg-slate-500'}"></span>
           ` : ''}
         </div>
 
-        <span class="port-num text-[7px] font-mono text-slate-400 group-hover:text-cyan-300 mt-0.5 leading-none select-none">${port.number || ''}</span>
+        <span class="port-num pointer-events-none absolute left-1/2 -translate-x-1/2 ${isLabelAbove ? 'bottom-full mb-[1px]' : 'top-full mt-[1px]'} text-[7px] font-mono ${isSilver ? 'text-slate-700 group-hover:text-cyan-700' : 'text-slate-400 group-hover:text-cyan-300'} leading-none whitespace-nowrap select-none z-10">${port.number || ''}</span>
       </div>
     `;
   }
