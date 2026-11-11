@@ -95,6 +95,23 @@ body {
   transform: translate(-50%, 1.5px);
 }
 
+body.is-dragging-device,
+body.is-dragging-device * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+body.is-dragging-device .port-slot {
+  pointer-events: none !important;
+}
+
+.installed-device.dragging-device {
+  transition: none !important;
+  z-index: 40 !important;
+  opacity: 0.9;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.75);
+}
+
 .cable-group {
   transition: opacity 0.16s ease;
 }

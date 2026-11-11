@@ -8,11 +8,27 @@ export class RackRenderer {
   constructor(rackContainer, cableRenderer) {
     this.container = rackContainer;
     this.cableRenderer = cableRenderer;
+    this.dragState = null;
+    this.suppressDeviceClick = false;
 
     this.initGlobalEvents();
   }
 
   initGlobalEvents() {
+    this.container.addEventListener('mousedown', (e) => this.handleDragStart(e));
+    window.addEventListener('mousemove', (e) => this.handleDragMove(e));
+    window.addEventListener('mouseup', () => this.handleDragEnd());
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.dragState) {
+        this.cancelDrag();
+      }
+    });
+    window.addEventListener('blur', () => {
+      if (this.dragState) {
+        this.cancelDrag();
+      }
+    });
+
     this.container.addEventListener('click', (e) => {
       if (e.target === this.container || e.target.classList.contains('rack-rail') || e.target.classList.contains('slot-empty')) {
         if (store.cableDraft) {
@@ -169,7 +185,7 @@ export class RackRenderer {
     }
 
     return `
-      <div class="installed-device relative select-none cursor-pointer transition-all ${isSelected ? 'ring-2 ring-cyan-400 z-20' : 'hover:brightness-105 z-10'}"
+      <div class="installed-device relative select-none cursor-grab transition-all ${isSelected ? 'ring-2 ring-cyan-400 z-20' : 'hover:brightness-105 z-10'}"
            style="height: ${heightPx}px; ${faceStyle}"
            data-device-id="${device.id}"
            data-u="${device.uPosition}">
@@ -183,9 +199,8 @@ export class RackRenderer {
 
           ${decorationsHtml}
 
-          <div class="absolute left-6 top-1 pointer-events-none flex items-center gap-1.5 opacity-80 z-20">
-            <span class="text-[9px] font-mono px-1 py-0.2 rounded bg-slate-900/80 text-cyan-300 border border-cyan-800/40">U${device.uPosition}${uHeight > 1 ? `-${device.uPosition + uHeight - 1}` : ''}</span>
-            <span class="text-[10px] font-semibold tracking-tight ${template?.style?.theme === 'silver' ? 'text-slate-800' : 'text-slate-300'} drop-shadow-sm truncate max-w-[140px]">${device.customName}</span>
+          <div class="absolute left-6 top-1 pointer-events-none flex items-center opacity-80 z-20">
+            <span class="text-[10px] font-semibold tracking-tight ${template?.style?.theme === 'silver' ? 'text-slate-800' : 'text-slate-300'} drop-shadow-sm truncate max-w-[160px]">${device.customName}</span>
           </div>
 
           <div class="ports-container absolute inset-0 z-20 pointer-events-auto">
@@ -347,6 +362,7 @@ export class RackRenderer {
     const devices = this.container.querySelectorAll('.installed-device');
     devices.forEach(d => {
       d.addEventListener('click', (e) => {
+        if (this.suppressDeviceClick) return;
         if (e.target.closest('.port-slot')) return;
         const deviceId = d.dataset.deviceId;
         const dev = store.getActiveRack()?.installedDevices.find(item => item.id === deviceId);
@@ -355,6 +371,153 @@ export class RackRenderer {
         }
       });
     });
+  }
+
+  handleDragStart(e) {
+    if (e.button !== 0 || store.cableDraft) return;
+    if (e.target.closest('.port-slot') || e.target.closest('button')) return;
+
+    const deviceEl = e.target.closest('.installed-device');
+    if (!deviceEl) return;
+
+    const rack = store.getActiveRack();
+    const deviceId = deviceEl.dataset.deviceId;
+    const dev = rack?.installedDevices.find(item => item.id === deviceId);
+    if (!dev) return;
+
+    const tpl = store.getTemplate(dev.templateId);
+    const uHeight = tpl?.uHeight || 1;
+    const devRect = deviceEl.getBoundingClientRect();
+
+    this.dragState = {
+      deviceEl,
+      deviceId,
+      rackId: rack.id,
+      uHeight,
+      startU: dev.uPosition,
+      targetU: dev.uPosition,
+      canDrop: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      grabOffsetY: e.clientY - devRect.top,
+      currentTranslateY: 0,
+      active: false
+    };
+  }
+
+  handleDragMove(e) {
+    if (!this.dragState) return;
+    const ds = this.dragState;
+
+    if (!ds.active) {
+      if (Math.hypot(e.clientX - ds.startX, e.clientY - ds.startY) < 5) return;
+      ds.active = true;
+      this.suppressDeviceClick = true;
+      document.body.classList.add('is-dragging-device');
+      ds.deviceEl.classList.add('dragging-device');
+    }
+
+    const stackEl = this.container.querySelector('#rack-units-stack');
+    const rack = store.getActiveRack();
+    if (!stackEl || !rack || rack.id !== ds.rackId) {
+      this.cancelDrag();
+      return;
+    }
+
+    const stackRect = stackEl.getBoundingClientRect();
+    const slotHeight = (stackRect.height / rack.uHeight) || 54;
+    const projectedTopPx = (e.clientY - ds.grabOffsetY) - stackRect.top;
+    const maxRowIdx = Math.max(0, rack.uHeight - ds.uHeight);
+    const rowIdx = Math.max(0, Math.min(maxRowIdx, Math.round(projectedTopPx / slotHeight)));
+    const targetTopU = rack.uHeight - rowIdx;
+    const targetBaseU = targetTopU - ds.uHeight + 1;
+    const canDrop = store.canMoveDevice(ds.deviceId, targetBaseU);
+
+    ds.targetU = targetBaseU;
+    ds.canDrop = canDrop;
+
+    const curDevHeight = ds.uHeight * slotHeight;
+    const clampedTop = Math.max(stackRect.top, Math.min(stackRect.bottom - curDevHeight, e.clientY - ds.grabOffsetY));
+    const baseTopWithoutTransform = ds.deviceEl.getBoundingClientRect().top - ds.currentTranslateY;
+    const translateY = clampedTop - baseTopWithoutTransform;
+    ds.currentTranslateY = translateY;
+    ds.deviceEl.style.transform = `translateY(${translateY}px)`;
+
+    this.renderDropPreview(stackEl, rowIdx, ds.uHeight, slotHeight, targetBaseU, ds.startU, canDrop);
+    this.cableRenderer?.render();
+  }
+
+  renderDropPreview(stackEl, rowIdx, uHeight, slotHeight, targetBaseU, startU, canDrop) {
+    let preview = stackEl.querySelector('#rack-drop-preview');
+    if (!preview) {
+      preview = document.createElement('div');
+      preview.id = 'rack-drop-preview';
+      stackEl.appendChild(preview);
+    }
+
+    const labelRange = uHeight > 1 ? `U${targetBaseU}-U${targetBaseU + uHeight - 1}` : `U${targetBaseU}`;
+    let stateClasses = 'border-cyan-400/70 bg-cyan-500/10 text-cyan-300';
+    let labelText = labelRange;
+
+    if (!canDrop) {
+      stateClasses = 'border-red-500 bg-red-500/20 text-red-300 shadow-[0_0_16px_rgba(239,68,68,0.25)]';
+      labelText = `Занято (${labelRange})`;
+    } else if (targetBaseU !== startU) {
+      stateClasses = 'border-emerald-400 bg-emerald-500/15 text-emerald-300 shadow-[0_0_16px_rgba(16,185,129,0.25)]';
+    }
+
+    preview.className = `pointer-events-none absolute inset-x-0 z-30 rounded border-2 flex items-center justify-end pr-3 text-[11px] font-mono font-bold ${stateClasses}`;
+    preview.style.top = `${rowIdx * slotHeight}px`;
+    preview.style.height = `${uHeight * slotHeight}px`;
+    preview.textContent = labelText;
+  }
+
+  cleanupDragVisuals() {
+    document.body.classList.remove('is-dragging-device');
+    const preview = this.container.querySelector('#rack-drop-preview');
+    if (preview) preview.remove();
+    if (this.dragState?.deviceEl) {
+      this.dragState.deviceEl.classList.remove('dragging-device');
+      this.dragState.deviceEl.style.transform = '';
+    }
+  }
+
+  handleDragEnd() {
+    if (!this.dragState) return;
+    const ds = this.dragState;
+
+    if (!ds.active) {
+      this.dragState = null;
+      return;
+    }
+
+    this.cleanupDragVisuals();
+    this.dragState = null;
+
+    const moved = ds.canDrop && ds.targetU !== ds.startU
+      ? store.moveDevice(ds.deviceId, ds.targetU)
+      : false;
+
+    if (!moved) {
+      this.cableRenderer?.render();
+    }
+
+    setTimeout(() => {
+      this.suppressDeviceClick = false;
+    }, 0);
+  }
+
+  cancelDrag() {
+    if (!this.dragState) return;
+    const wasActive = this.dragState.active;
+    this.cleanupDragVisuals();
+    this.dragState = null;
+    if (wasActive) {
+      this.cableRenderer?.render();
+      setTimeout(() => {
+        this.suppressDeviceClick = false;
+      }, 0);
+    }
   }
 
   calculateTotalPower(rack) {

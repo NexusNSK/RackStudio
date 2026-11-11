@@ -350,6 +350,77 @@ async def run_test_suite():
         """.replace("${install_switch}", str(install_res)).replace("${install_patch}", str(install_patch)))
         record("Two-row top port labels placed above jacks without clipping", bool(two_row_labels_ok))
 
+        # Verify U-slot badges are removed from installed device faceplates while names remain
+        u_badge_removed_ok = await client.eval("""
+            (() => {
+                const swDev = document.querySelector(`#rack-container .installed-device[data-device-id="${install_switch}"]`);
+                const ppDev = document.querySelector(`#rack-container .installed-device[data-device-id="${install_patch}"]`);
+                if (!swDev || !ppDev) return false;
+                const swText = swDev.textContent || '';
+                const ppText = ppDev.textContent || '';
+                return (
+                    swText.includes('Switch 24-Port Pro Max PoE') &&
+                    ppText.includes('Patch Panel 24P Cat6 UTP') &&
+                    !swText.includes('U24') &&
+                    !ppText.includes('U23')
+                );
+            })()
+        """.replace("${install_switch}", str(install_res)).replace("${install_patch}", str(install_patch)))
+        record("Installed devices omit U-slot badge while keeping device names", bool(u_badge_removed_ok))
+
+        # Verify dragging installed device to free slot U21 and blocking occupied U24
+        drag_coords = await client.eval(f"""
+            (() => {{
+                const ppDev = document.querySelector('#rack-container .installed-device[data-device-id="{install_patch}"]');
+                if (!ppDev) return null;
+                ppDev.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+                const rect = ppDev.getBoundingClientRect();
+                const slotH = rect.height;
+                return {{ x: rect.left + 8, y: rect.top + slotH / 2, slotH }};
+            }})()
+        """)
+        drag_move_ok = False
+        drag_blocked_ok = False
+        if drag_coords:
+            gx = drag_coords["x"]
+            gy = drag_coords["y"]
+            sh = drag_coords["slotH"]
+            await client.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": gx, "y": gy, "button": "left", "clickCount": 1})
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": gx, "y": gy + sh, "buttons": 1})
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": gx, "y": gy + 2 * sh, "buttons": 1})
+            await asyncio.sleep(0.1)
+            preview_u21 = await client.eval("document.getElementById('rack-drop-preview')?.textContent || ''")
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": gx, "y": gy + 2 * sh, "button": "left", "clickCount": 1})
+            await asyncio.sleep(0.25)
+            pos_after_drag = await client.eval(f"window.store.getActiveRack().installedDevices.find(d => d.id === '{install_patch}')?.uPosition")
+            drag_move_ok = (preview_u21 == "U21" and pos_after_drag == 21)
+
+            # Now test dropping onto occupied U24 is rejected
+            drag_coords2 = await client.eval(f"""
+                (() => {{
+                    const ppDev = document.querySelector('#rack-container .installed-device[data-device-id="{install_patch}"]');
+                    if (!ppDev) return null;
+                    ppDev.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+                    const rect = ppDev.getBoundingClientRect();
+                    return {{ x: rect.left + 8, y: rect.top + rect.height / 2, slotH: rect.height }};
+                }})()
+            """)
+            if drag_coords2:
+                gx2 = drag_coords2["x"]
+                gy2 = drag_coords2["y"]
+                sh2 = drag_coords2["slotH"]
+                await client.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": gx2, "y": gy2, "button": "left", "clickCount": 1})
+                await client.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": gx2, "y": gy2 - 3 * sh2, "buttons": 1})
+                await asyncio.sleep(0.1)
+                preview_u24 = await client.eval("document.getElementById('rack-drop-preview')?.textContent || ''")
+                await client.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": gx2, "y": gy2 - 3 * sh2, "button": "left", "clickCount": 1})
+                await asyncio.sleep(0.25)
+                pos_after_blocked = await client.eval(f"window.store.getActiveRack().installedDevices.find(d => d.id === '{install_patch}')?.uPosition")
+                drag_blocked_ok = ("Занято" in preview_u24 and pos_after_blocked == 21)
+
+        record("Drag device to free slot updates uPosition (U23 -> U21)", drag_move_ok)
+        record("Dragging device onto occupied slot (U24) is blocked", drag_blocked_ok)
+
         # -------------------------------------------------------------
         # TEST 4: Workplace Groups & Isolation Filtering (+ Группа)
         # -------------------------------------------------------------

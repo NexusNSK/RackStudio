@@ -318,6 +318,34 @@ class StateStore {
   }
 
   // Devices
+  findDeviceSlotConflict(rack, targetU, uHeight = 1, excludeDeviceId = null) {
+    if (!rack) return { outOfBounds: true, conflictDevice: null };
+    for (let u = targetU; u < targetU + uHeight; u++) {
+      if (u < 1 || u > rack.uHeight) {
+        return { outOfBounds: true, conflictDevice: null };
+      }
+      const collision = rack.installedDevices.find(d => {
+        if (excludeDeviceId && d.id === excludeDeviceId) return false;
+        const dTemplate = this.getTemplate(d.templateId);
+        const dHeight = dTemplate?.uHeight || 1;
+        return u >= d.uPosition && u < d.uPosition + dHeight;
+      });
+      if (collision) {
+        return { outOfBounds: false, conflictDevice: collision, conflictU: u };
+      }
+    }
+    return null;
+  }
+
+  canMoveDevice(deviceId, newU) {
+    const rack = this.getActiveRack();
+    if (!rack) return false;
+    const dev = rack.installedDevices.find(d => d.id === deviceId);
+    if (!dev) return false;
+    const uHeight = this.getTemplate(dev.templateId)?.uHeight || 1;
+    return !this.findDeviceSlotConflict(rack, newU, uHeight, deviceId);
+  }
+
   installDevice(templateId, targetU, customName = null) {
     const rack = this.getActiveRack();
     if (!rack) return null;
@@ -325,20 +353,14 @@ class StateStore {
     if (!template) return null;
 
     const uHeight = template.uHeight || 1;
-    for (let u = targetU; u < targetU + uHeight; u++) {
-      if (u > rack.uHeight) {
+    const conflict = this.findDeviceSlotConflict(rack, targetU, uHeight);
+    if (conflict) {
+      if (conflict.outOfBounds) {
         alert(`Устройство ${uHeight}U выходит за пределы стойки (${rack.uHeight}U)`);
-        return null;
+      } else {
+        alert(`Юнит U${conflict.conflictU} уже занят устройством "${conflict.conflictDevice.customName}"`);
       }
-      const occupied = rack.installedDevices.find(d => {
-        const dTemplate = this.getTemplate(d.templateId);
-        const dHeight = dTemplate?.uHeight || 1;
-        return u >= d.uPosition && u < d.uPosition + dHeight;
-      });
-      if (occupied) {
-        alert(`Юнит U${u} уже занят устройством "${occupied.customName}"`);
-        return null;
-      }
+      return null;
     }
 
     const deviceId = `dev-${Date.now()}`;
@@ -365,15 +387,8 @@ class StateStore {
     const template = this.getTemplate(dev.templateId);
     const uHeight = template?.uHeight || 1;
 
-    for (let u = newU; u < newU + uHeight; u++) {
-      if (u > rack.uHeight || u < 1) return false;
-      const collision = rack.installedDevices.find(d => {
-        if (d.id === deviceId) return false;
-        const dTemplate = this.getTemplate(d.templateId);
-        const dHeight = dTemplate?.uHeight || 1;
-        return u >= d.uPosition && u < d.uPosition + dHeight;
-      });
-      if (collision) return false;
+    if (this.findDeviceSlotConflict(rack, newU, uHeight, deviceId)) {
+      return false;
     }
 
     dev.uPosition = newU;
