@@ -20,6 +20,7 @@ window.openDevicePalette = (u) => (window.app ? window.app.openDevicePalette(u) 
 window.openDevicePaletteForUnit = (u) => (window.app ? window.app.openDevicePalette(u) : null);
 window.closeDevicePalette = () => (window.app ? window.app.closeDevicePalette() : null);
 window.deleteTemplateFromPalette = (id, e) => (window.app ? window.app.deleteTemplateFromPalette(id, e) : null);
+window.editTemplateFromPalette = (id, e) => (window.app ? window.app.editTemplateFromPalette(id, e) : null);
 window.openTemplateBuilder = () => (window.app ? window.app.templateBuilder.open() : null);
 window.setCableRoutingMode = (mode) => (window.app ? window.app.setCableRoutingMode(mode) : null);
 
@@ -52,6 +53,7 @@ class App {
     window.openDevicePaletteForUnit = (u) => this.openDevicePalette(u);
     window.closeDevicePalette = () => this.closeDevicePalette();
     window.deleteTemplateFromPalette = (id, e) => this.deleteTemplateFromPalette(id, e);
+    window.editTemplateFromPalette = (id, e) => this.editTemplateFromPalette(id, e);
     window.openTemplateBuilder = () => this.templateBuilder.open();
     window.openAddRackModal = () => this.openAddRackModal();
     window.openEditRackModal = (id) => this.openEditRackModal(id);
@@ -103,6 +105,12 @@ class App {
       store.deleteTemplate(tplId);
       this.openDevicePalette(this.targetPaletteU);
     }
+  }
+
+  editTemplateFromPalette(tplId, e) {
+    if (e) e.stopPropagation();
+    this.closeDevicePalette();
+    this.templateBuilder.open(tplId);
   }
 
   initEventListeners() {
@@ -220,10 +228,6 @@ class App {
       e.target.value = '';
     });
 
-    document.getElementById('btn-reset-demo')?.addEventListener('click', () => {
-      store.resetToDefault();
-    });
-
     document.getElementById('close-palette-modal')?.addEventListener('click', () => {
       this.closeDevicePalette();
     });
@@ -267,6 +271,11 @@ class App {
         this.renderGroupModalList();
         this.cableRenderer.render();
       } else if (event.startsWith('template_')) {
+        if (event === 'template_updated') {
+          this.rackRenderer.render();
+          this.cableRenderer.render();
+          this.renderDetailsDrawer();
+        }
         const pModal = document.getElementById('palette-modal');
         if (pModal && (!pModal.classList.contains('hidden') || pModal.style.display === 'flex')) {
           this.openDevicePalette(this.targetPaletteU);
@@ -529,6 +538,11 @@ class App {
             ${tpl.style?.customImage ? '★ Фото-панель' : 'Стандартный рендер'}
           </span>
           <div class="flex items-center gap-2">
+            <button class="px-2.5 py-1.5 text-slate-400 hover:text-cyan-300 hover:bg-cyan-950/60 border border-slate-700 hover:border-cyan-800 rounded-lg text-xs transition flex items-center justify-center"
+                    title="Редактировать шаблон устройства"
+                    onclick="window.editTemplateFromPalette('${tpl.id}', event)">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+            </button>
             <button class="px-2.5 py-1.5 text-slate-400 hover:text-red-400 hover:bg-red-950/60 border border-slate-700 hover:border-red-800 rounded-lg text-xs transition"
                     title="Удалить устройство из пула оборудования"
                     onclick="window.deleteTemplateFromPalette('${tpl.id}', event)">

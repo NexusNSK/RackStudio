@@ -209,6 +209,8 @@ async def run_test_suite():
         record("window.app is instantiated", app_exists)
         record("window.store is initialized", store_exists)
         record(f"Default rack exists ({active_rack_u}U)", racks_count > 0 and active_rack_u == 24, f"{racks_count} racks, active {active_rack_u}U")
+        reset_btn_absent = await client.eval("document.getElementById('btn-reset-demo') === null")
+        record("Reset to demo button is removed from header", reset_btn_absent)
 
         # -------------------------------------------------------------
         # TEST 2: Add Rack Button (+ Стойка modal) & Creation
@@ -514,8 +516,58 @@ async def run_test_suite():
             })()
         """)
         record("Custom template is listed in Device Catalog ready to install", found_custom_in_catalog)
-        await client.eval("document.getElementById('close-palette-modal').click()")
-        await asyncio.sleep(0.2)
+
+        # Open edit mode for the custom template from Device Catalog
+        edit_opened = await client.eval("""
+            (() => {
+                const cards = Array.from(document.querySelectorAll('#palette-devices-list > div'));
+                const card = cards.find(c => c.textContent.includes('Мой Кастомный Маршрутизатор 2U'));
+                if (!card) return false;
+                const editBtn = card.querySelector('button[title="Редактировать шаблон устройства"]');
+                if (!editBtn) return false;
+                editBtn.click();
+                return true;
+            })()
+        """)
+        await asyncio.sleep(0.3)
+        edit_state_ok = await client.eval("""
+            (() => {
+                const modal = document.getElementById('builder-modal');
+                const saveBtn = document.getElementById('btn-save-template');
+                const nameInput = document.getElementById('builder-name');
+                const tb = window.app.templateBuilder;
+                return Boolean(
+                    modal && !modal.classList.contains('hidden') &&
+                    tb && tb.editingTemplateId &&
+                    nameInput && nameInput.value === 'Мой Кастомный Маршрутизатор 2U' &&
+                    saveBtn && saveBtn.textContent.includes('Сохранить изменения')
+                );
+            })()
+        """)
+        record("Edit existing template opens Builder with populated fields", bool(edit_opened and edit_state_ok))
+
+        # Modify template name & power and save changes
+        tpl_count_before_edit = await client.eval("window.store.getTemplates().length")
+        await client.eval("""
+            (() => {
+                const nameInput = document.getElementById('builder-name');
+                nameInput.value = 'Мой Кастомный Маршрутизатор 2U (ред.)';
+                nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+                const powerInput = document.getElementById('builder-power');
+                powerInput.value = '120';
+                powerInput.dispatchEvent(new Event('input', { bubbles: true }));
+                document.getElementById('btn-save-template').click();
+            })()
+        """)
+        await asyncio.sleep(0.4)
+        edit_saved_ok = await client.eval(f"""
+            (() => {{
+                const tpls = window.store.getTemplates();
+                const updated = tpls.find(t => t.name === 'Мой Кастомный Маршрутизатор 2U (ред.)');
+                return tpls.length === {tpl_count_before_edit} && Boolean(updated && updated.powerW === 120 && updated.ports.length === 24);
+            }})()
+        """)
+        record("Saving edited template updates existing template in store", edit_saved_ok)
 
         # -------------------------------------------------------------
         # TEST 8: Drawer Actions & Deletions

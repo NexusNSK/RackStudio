@@ -9,6 +9,7 @@ import { store } from './state.js';
 export class TemplateBuilder {
   constructor(modalElement) {
     this.modal = modalElement;
+    this.editingTemplateId = null;
     this.currentTemplate = this.getEmptyTemplate();
     this.selectedPortIndex = null;
     this.uploadedImageDataUrl = null;
@@ -279,25 +280,54 @@ export class TemplateBuilder {
     });
   }
 
-  open() {
-    this.currentTemplate = this.getEmptyTemplate();
+  open(templateId = null) {
+    if (templateId) {
+      const existing = store.getTemplate(templateId);
+      if (existing) {
+        this.editingTemplateId = existing.id;
+        this.currentTemplate = JSON.parse(JSON.stringify(existing));
+        if (!this.currentTemplate.style) {
+          this.currentTemplate.style = { theme: 'silver', customImage: null };
+        }
+        if (!Array.isArray(this.currentTemplate.ports)) {
+          this.currentTemplate.ports = [];
+        }
+        this.uploadedImageDataUrl = this.currentTemplate.style.customImage || null;
+      } else {
+        this.editingTemplateId = null;
+        this.currentTemplate = this.getEmptyTemplate();
+        this.uploadedImageDataUrl = null;
+      }
+    } else {
+      this.editingTemplateId = null;
+      this.currentTemplate = this.getEmptyTemplate();
+      this.uploadedImageDataUrl = null;
+    }
+
     this.selectedPortIndex = null;
-    this.uploadedImageDataUrl = null;
 
     const nameEl = this.modal.querySelector('#builder-name');
-    if (nameEl) nameEl.value = this.currentTemplate.name;
+    if (nameEl) nameEl.value = this.currentTemplate.name || '';
 
     const vendorEl = this.modal.querySelector('#builder-vendor');
-    if (vendorEl) vendorEl.value = this.currentTemplate.vendor;
+    if (vendorEl) vendorEl.value = this.currentTemplate.vendor || '';
 
     const categoryEl = this.modal.querySelector('#builder-category');
-    if (categoryEl) categoryEl.value = this.currentTemplate.category;
+    if (categoryEl) categoryEl.value = this.currentTemplate.category || 'switch';
 
     const uHeightEl = this.modal.querySelector('#builder-u-height');
-    if (uHeightEl) uHeightEl.value = this.currentTemplate.uHeight;
+    if (uHeightEl) uHeightEl.value = this.currentTemplate.uHeight || 1;
 
     const powerEl = this.modal.querySelector('#builder-power');
-    if (powerEl) powerEl.value = this.currentTemplate.powerW;
+    if (powerEl) powerEl.value = this.currentTemplate.powerW ?? 0;
+
+    const themeEl = this.modal.querySelector('#builder-theme-select');
+    if (themeEl) themeEl.value = this.currentTemplate.style?.theme || 'silver';
+
+    const saveBtn = this.modal.querySelector('#btn-save-template');
+    if (saveBtn) {
+      saveBtn.textContent = this.editingTemplateId ? 'Сохранить изменения шаблона' : 'Сохранить шаблон в библиотеку';
+    }
 
     this.updateCanvasAspect();
     this.renderCanvas();
@@ -688,8 +718,13 @@ export class TemplateBuilder {
       return;
     }
 
-    const tpl = store.addTemplate(this.currentTemplate);
-    alert(`Шаблон "${tpl.name}" успешно сохранен в библиотеку! Теперь его можно установить в любую стойку через "Устройство".`);
+    if (this.editingTemplateId) {
+      store.updateTemplate(this.editingTemplateId, this.currentTemplate);
+      alert(`Шаблон "${this.currentTemplate.name}" успешно обновлен!`);
+    } else {
+      const tpl = store.addTemplate(this.currentTemplate);
+      alert(`Шаблон "${tpl.name}" успешно сохранен в библиотеку! Теперь его можно установить в любую стойку через "Устройство".`);
+    }
     this.close();
   }
 }
