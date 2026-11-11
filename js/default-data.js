@@ -2,6 +2,58 @@
  * RackStudio - Default Templates & Demo Data
  */
 
+/**
+ * Generates exact front-panel port coordinates for Eltex MES2324-series switches
+ * (top row 1..12, bottom row 13..24, 4x SFP+ XG1..XG4, and RS-232 Console).
+ */
+function createEltex24SwitchPorts({ colXs, topY, botY, sfpXs, sfpY, consoleX, consoleY, rjSpeed = '1G' }) {
+  const ports = [];
+  for (let i = 0; i < 12; i++) {
+    ports.push({
+      id: `p-${i + 1}`,
+      number: i + 1,
+      name: `Port ${i + 1}`,
+      type: 'rj45',
+      speed: rjSpeed,
+      x: colXs[i],
+      y: topY
+    });
+  }
+  for (let i = 0; i < 12; i++) {
+    const num = i + 13;
+    ports.push({
+      id: `p-${num}`,
+      number: num,
+      name: `Port ${num}`,
+      type: 'rj45',
+      speed: rjSpeed,
+      x: colXs[i],
+      y: botY
+    });
+  }
+  for (let i = 0; i < 4; i++) {
+    ports.push({
+      id: `xg-${i + 1}`,
+      number: 25 + i,
+      name: `XG${i + 1}`,
+      type: 'sfp',
+      speed: '10G SFP+',
+      x: sfpXs[i],
+      y: sfpY
+    });
+  }
+  ports.push({
+    id: 'console',
+    number: 0,
+    name: 'Console',
+    type: 'console',
+    speed: 'RS-232',
+    x: consoleX,
+    y: consoleY
+  });
+  return ports;
+}
+
 export const DEFAULT_DEVICE_TEMPLATES = [
   {
     id: 'tpl-switch-24p',
@@ -166,6 +218,78 @@ export const DEFAULT_DEVICE_TEMPLATES = [
       hasPowerMeter: true,
       meterText: '230V  4.2A  960W'
     }
+  },
+
+  {
+    id: 'tpl-eltex-mes2324',
+    name: 'Eltex MES2324',
+    vendor: 'Eltex',
+    category: 'switch',
+    uHeight: 1,
+    powerW: 25,
+    style: {
+      theme: 'silver',
+      accentColor: '#0ea5e9',
+      customImage: 'assets/panels/mes2324.png'
+    },
+    ports: createEltex24SwitchPorts({
+      colXs: [34.72, 38.22, 41.73, 45.18, 49.09, 52.59, 56.08, 59.53, 63.45, 67.02, 70.54, 73.99],
+      topY: 44.76,
+      botY: 68.55,
+      sfpXs: [81.14, 85.4, 89.67, 93.79],
+      sfpY: 77.02,
+      consoleX: 24.85,
+      consoleY: 74.19,
+      rjSpeed: '1G'
+    })
+  },
+
+  {
+    id: 'tpl-eltex-mes2324p',
+    name: 'Eltex MES2324P (PoE+)',
+    vendor: 'Eltex',
+    category: 'switch',
+    uHeight: 1,
+    powerW: 445,
+    style: {
+      theme: 'silver',
+      accentColor: '#0ea5e9',
+      customImage: 'assets/panels/mes2324p.png'
+    },
+    ports: createEltex24SwitchPorts({
+      colXs: [36.72, 40.13, 43.54, 46.97, 50.74, 54.15, 57.58, 61.0, 64.77, 68.18, 71.61, 75.04],
+      topY: 43.55,
+      botY: 68.55,
+      sfpXs: [81.94, 86.09, 90.24, 94.36],
+      sfpY: 77.42,
+      consoleX: 27.02,
+      consoleY: 73.79,
+      rjSpeed: '1G / PoE+'
+    })
+  },
+
+  {
+    id: 'tpl-eltex-mes2324b',
+    name: 'Eltex MES2324B (АКБ)',
+    vendor: 'Eltex',
+    category: 'switch',
+    uHeight: 1,
+    powerW: 50,
+    style: {
+      theme: 'silver',
+      accentColor: '#0ea5e9',
+      customImage: 'assets/panels/mes2324b.png'
+    },
+    ports: createEltex24SwitchPorts({
+      colXs: [34.95, 38.41, 41.9, 45.39, 49.28, 52.78, 56.29, 59.79, 63.66, 67.15, 70.62, 74.12],
+      topY: 44.35,
+      botY: 68.95,
+      sfpXs: [81.14, 85.4, 89.6, 93.83],
+      sfpY: 77.42,
+      consoleX: 24.96,
+      consoleY: 74.19,
+      rjSpeed: '1G'
+    })
   }
 ];
 

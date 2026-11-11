@@ -5,6 +5,13 @@
 import { DEFAULT_INITIAL_STATE, DEFAULT_DEVICE_TEMPLATES } from './default-data.js';
 
 const STORAGE_KEY = 'rack_studio_data_v2';
+const LEGACY_DEFAULT_TEMPLATE_IDS = [
+  'tpl-switch-24p',
+  'tpl-patch-24p',
+  'tpl-server-2u',
+  'tpl-gateway-1u',
+  'tpl-pdu-1u'
+];
 
 class StateStore {
   constructor() {
@@ -26,6 +33,37 @@ class StateStore {
     this.initServerSync();
   }
 
+  ensureBuiltinTemplates(targetState) {
+    if (!targetState || !Array.isArray(targetState.racks)) return targetState;
+    if (!Array.isArray(targetState.templates)) {
+      targetState.templates = [];
+    }
+
+    if (!Array.isArray(targetState.knownDefaultTemplateIds)) {
+      targetState.knownDefaultTemplateIds = Array.from(
+        new Set([
+          ...LEGACY_DEFAULT_TEMPLATE_IDS,
+          ...targetState.templates.map(t => t.id)
+        ])
+      );
+    }
+
+    const existingIds = new Set(targetState.templates.map(t => t.id));
+    const knownIds = new Set(targetState.knownDefaultTemplateIds);
+
+    DEFAULT_DEVICE_TEMPLATES.forEach(dt => {
+      if (!existingIds.has(dt.id) && !knownIds.has(dt.id)) {
+        targetState.templates.push(JSON.parse(JSON.stringify(dt)));
+      }
+      if (!knownIds.has(dt.id)) {
+        targetState.knownDefaultTemplateIds.push(dt.id);
+        knownIds.add(dt.id);
+      }
+    });
+
+    return targetState;
+  }
+
   loadState() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -36,7 +74,7 @@ class StateStore {
           (parsed.groups || []).forEach(g => {
             if (!g.rackId) g.rackId = defaultRackId;
           });
-          return parsed;
+          return this.ensureBuiltinTemplates(parsed);
         }
       }
 
@@ -52,7 +90,7 @@ class StateStore {
           if (customTemplates.length > 0) {
             newState.templates.push(...customTemplates);
           }
-          return newState;
+          return this.ensureBuiltinTemplates(newState);
         } catch (err) {
           console.warn('Failed to migrate templates from v1', err);
         }
@@ -60,7 +98,7 @@ class StateStore {
     } catch (e) {
       console.warn('Failed to load state from localStorage, using defaults', e);
     }
-    return JSON.parse(JSON.stringify(DEFAULT_INITIAL_STATE));
+    return this.ensureBuiltinTemplates(JSON.parse(JSON.stringify(DEFAULT_INITIAL_STATE)));
   }
 
   saveState() {
@@ -114,7 +152,7 @@ class StateStore {
         const remoteState = await resp.json();
         if (remoteState && Array.isArray(remoteState.racks)) {
           this.isApplyingRemote = true;
-          this.state = remoteState;
+          this.state = this.ensureBuiltinTemplates(remoteState);
           try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
           } catch (e) {}
@@ -602,7 +640,7 @@ class StateStore {
       if (!parsed || !Array.isArray(parsed.racks)) {
         throw new Error('Некорректный формат файла проекта');
       }
-      this.state = parsed;
+      this.state = this.ensureBuiltinTemplates(parsed);
       this.saveState();
       this.clearSelection();
       this.notify('state_imported', this.state);
@@ -615,7 +653,7 @@ class StateStore {
 
   resetToDefault() {
     if (confirm('Сбросить весь проект к демонстрационным начальным данным? Все несохраненные изменения будут перезаписаны.')) {
-      this.state = JSON.parse(JSON.stringify(DEFAULT_INITIAL_STATE));
+      this.state = this.ensureBuiltinTemplates(JSON.parse(JSON.stringify(DEFAULT_INITIAL_STATE)));
       this.saveState();
       this.clearSelection();
       this.notify('state_reset', this.state);

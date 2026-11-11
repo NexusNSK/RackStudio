@@ -85,6 +85,10 @@ body {
   transition: transform 0.15s ease, color 0.15s ease;
 }
 
+.port-cable-hover .port-num {
+  opacity: 1 !important;
+}
+
 .port-slot[data-label-pos="top"]:hover .port-num,
 .port-slot[data-label-pos="top"].port-cable-hover .port-num {
   transform: translate(-50%, -1.5px);

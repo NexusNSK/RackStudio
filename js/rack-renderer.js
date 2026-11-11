@@ -164,7 +164,8 @@ export class RackRenderer {
 
     let faceStyle = '';
     let themeClass = 'bg-[#1a1d24] text-slate-200';
-    if (template?.style?.customImage) {
+    const hasCustomImage = Boolean(template?.style?.customImage);
+    if (hasCustomImage) {
       faceStyle = `background-image: url('${template.style.customImage}'); background-size: 100% 100%; background-repeat: no-repeat;`;
       themeClass = 'custom-image-panel';
     } else if (template?.style?.theme === 'silver') {
@@ -199,9 +200,15 @@ export class RackRenderer {
 
           ${decorationsHtml}
 
-          <div class="absolute left-6 top-1 pointer-events-none flex items-center opacity-80 z-20">
-            <span class="text-[10px] font-semibold tracking-tight ${template?.style?.theme === 'silver' ? 'text-slate-800' : 'text-slate-300'} drop-shadow-sm truncate max-w-[160px]">${device.customName}</span>
-          </div>
+          ${hasCustomImage ? `
+            <div class="absolute left-5 top-0.5 pointer-events-none flex items-center z-20">
+              <span class="px-1.5 py-[1px] rounded bg-slate-950/80 border border-slate-700/75 text-[9px] font-semibold tracking-tight text-slate-100 shadow-sm truncate max-w-[150px]">${device.customName}</span>
+            </div>
+          ` : `
+            <div class="absolute left-6 top-1 pointer-events-none flex items-center opacity-80 z-20">
+              <span class="text-[10px] font-semibold tracking-tight ${template?.style?.theme === 'silver' ? 'text-slate-800' : 'text-slate-300'} drop-shadow-sm truncate max-w-[160px]">${device.customName}</span>
+            </div>
+          `}
 
           <div class="ports-container absolute inset-0 z-20 pointer-events-auto">
             ${portsHtml}
@@ -237,7 +244,12 @@ export class RackRenderer {
       isMatch = cable && cable.groupId === activeFilter;
     }
 
-    let portColorClass = 'border-slate-600 bg-slate-900 text-slate-300';
+    const hasCustomImage = Boolean(template?.style?.customImage);
+    let portColorClass = hasCustomImage
+      ? (isConnected
+        ? 'border-slate-500 bg-slate-900/75 text-slate-300'
+        : 'border-cyan-300/25 bg-slate-950/15 text-transparent hover:bg-slate-900/55')
+      : 'border-slate-600 bg-slate-900 text-slate-300';
     let glowStyle = '';
 
     if (isConnected && cableGroup) {
@@ -251,24 +263,35 @@ export class RackRenderer {
     }
 
     let portIcon = '';
-    let portSize = 'w-4 h-4 text-[8px]';
+    let portSize = hasCustomImage ? 'w-4 h-3 text-[8px]' : 'w-4 h-4 text-[8px]';
 
     if (port.type === 'sfp') {
-      portSize = 'w-5 h-5 text-[8px]';
-      portIcon = '<span class="text-[7px] text-amber-300/80">SFP</span>';
+      portSize = hasCustomImage ? 'w-5 h-3 text-[8px]' : 'w-5 h-5 text-[8px]';
+      portIcon = hasCustomImage ? '' : '<span class="text-[7px] text-amber-300/80">SFP</span>';
     } else if (port.type === 'console') {
-      portIcon = '<span class="text-[7px] text-sky-400">C</span>';
+      portIcon = hasCustomImage ? '' : '<span class="text-[7px] text-sky-400">C</span>';
     } else if (port.type === 'power') {
       portSize = 'w-5 h-4.5';
       portIcon = '<span class="text-[7px] text-red-400">⚡</span>';
     }
 
-    const isSilver = !template?.style?.customImage && template?.style?.theme === 'silver';
+    const isSilver = !hasCustomImage && template?.style?.theme === 'silver';
     const isLabelAbove = this.isUpperRowPort(port, template?.ports || [], (template?.uHeight || 1) * 54);
+    const portDisplayLabel = hasCustomImage
+      ? (port.type === 'console'
+        ? 'CON'
+        : port.type === 'sfp'
+          ? `XG${Math.max(1, (port.number || 25) - 24)}`
+          : (port.number || ''))
+      : (port.number || '');
+    const portLabelClass = hasCustomImage
+      ? 'opacity-0 group-hover:opacity-100 group-hover:z-40 bg-slate-950/90 text-cyan-200 px-1 py-0.5 rounded shadow'
+      : (isSilver ? 'text-slate-700 group-hover:text-cyan-700' : 'text-slate-400 group-hover:text-cyan-300');
 
     return `
       <div class="port-slot absolute flex items-center justify-center -translate-x-1/2 -translate-y-1/2 cursor-crosshair group transition-all hover:z-30"
            style="left: ${port.x}%; top: ${port.y}%;"
+           title="${port.name}${port.speed ? ` (${port.speed})` : ''}"
            data-device-id="${device.id}"
            data-port-id="${port.id}"
            data-port-name="${port.name}"
@@ -284,7 +307,7 @@ export class RackRenderer {
           ` : ''}
         </div>
 
-        <span class="port-num pointer-events-none absolute left-1/2 -translate-x-1/2 ${isLabelAbove ? 'bottom-full mb-[1px]' : 'top-full mt-[1px]'} text-[7px] font-mono ${isSilver ? 'text-slate-700 group-hover:text-cyan-700' : 'text-slate-400 group-hover:text-cyan-300'} leading-none whitespace-nowrap select-none z-10">${port.number || ''}</span>
+        <span class="port-num pointer-events-none absolute left-1/2 -translate-x-1/2 ${isLabelAbove ? 'bottom-full mb-[1px]' : 'top-full mt-[1px]'} text-[7px] font-mono ${portLabelClass} leading-none whitespace-nowrap select-none z-10">${portDisplayLabel}</span>
       </div>
     `;
   }

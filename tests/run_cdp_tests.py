@@ -815,6 +815,108 @@ async def run_test_suite():
         record("Delete server rack from system", racks_after == racks_before - 1, f"Racks: {racks_before} -> {racks_after}")
 
         # -------------------------------------------------------------
+        # TEST 9A: Eltex MES2324 Series Built-in Templates & Photo Panels
+        # -------------------------------------------------------------
+        print("\n--- Test Suite 9A: Eltex MES2324 Built-in Photo Templates ---")
+        eltex_templates_ok = await client.eval("""
+            (() => {
+                const ids = ['tpl-eltex-mes2324', 'tpl-eltex-mes2324p', 'tpl-eltex-mes2324b'];
+                return ids.every(id => {
+                    const tpl = window.store.getTemplate(id);
+                    if (!tpl || tpl.vendor !== 'Eltex' || tpl.category !== 'switch') return false;
+                    const rjCount = tpl.ports.filter(p => p.type === 'rj45').length;
+                    const sfpCount = tpl.ports.filter(p => p.type === 'sfp').length;
+                    const conCount = tpl.ports.filter(p => p.type === 'console').length;
+                    return rjCount === 24 && sfpCount === 4 && conCount === 1 && Boolean(tpl.style?.customImage);
+                });
+            })()
+        """)
+        record("Eltex MES2324, MES2324P, and MES2324B templates exist with 29 ports", bool(eltex_templates_ok))
+
+        eltex_images_ok = await client.eval("""
+            (async () => {
+                const imgs = [
+                    'assets/panels/mes2324.png',
+                    'assets/panels/mes2324p.png',
+                    'assets/panels/mes2324b.png'
+                ];
+                const loaded = await Promise.all(imgs.map(src => new Promise(resolve => {
+                    const img = new Image();
+                    img.onload = () => resolve(img.naturalWidth === 1312 && img.naturalHeight === 124);
+                    img.onerror = () => resolve(false);
+                    img.src = src;
+                })));
+                return loaded.every(Boolean);
+            })()
+        """, await_promise=True)
+        record("Eltex front-panel PNG images load cleanly (1312x124)", bool(eltex_images_ok))
+
+        eltex_render_ok = await client.eval("""
+            (() => {
+                const dev = window.store.installDevice('tpl-eltex-mes2324p', 12);
+                if (!dev) return false;
+                const el = document.querySelector(`.installed-device[data-device-id="${dev.id}"]`);
+                if (!el || !el.querySelector('.custom-image-panel')) return false;
+                const p1 = el.querySelector('.port-slot[data-port-id="p-1"]');
+                const p13 = el.querySelector('.port-slot[data-port-id="p-13"]');
+                const xg1 = el.querySelector('.port-slot[data-port-id="xg-1"]');
+                const con = el.querySelector('.port-slot[data-port-id="console"]');
+                if (!p1 || !p13 || !xg1 || !con) return false;
+                const j1 = p1.querySelector('.port-jack').getBoundingClientRect();
+                const j13 = p13.querySelector('.port-jack').getBoundingClientRect();
+                const c1 = window.store.addCable({
+                    from: { deviceId: dev.id, portId: 'p-1' },
+                    to: { deviceId: 'dev-switch', portId: 'p-1' },
+                    type: 'Cat6 UTP'
+                });
+                const c2 = window.store.addCable({
+                    from: { deviceId: dev.id, portId: 'xg-1' },
+                    to: { deviceId: 'dev-gateway', portId: 'wan-2' },
+                    type: '10G SFP+ DAC'
+                });
+                return (
+                    p1.dataset.labelPos === 'top' &&
+                    p13.dataset.labelPos === 'bottom' &&
+                    j1.bottom <= j13.top + 0.5 &&
+                    Math.abs((j1.left + j1.width / 2) - (j13.left + j13.width / 2)) < 2 &&
+                    Boolean(c1 && c2)
+                );
+            })()
+        """)
+        await asyncio.sleep(0.3)
+        record("Eltex photo panel renders coaxial RJ45/SFP/Console ports without row overlap", bool(eltex_render_ok))
+
+        legacy_migration_ok = await client.eval("""
+            (() => {
+                const saved = localStorage.getItem('rack_studio_data_v2');
+                try {
+                    const legacyState = {
+                        version: 2,
+                        activeRackId: 'rack-legacy',
+                        activeGroupFilter: 'ALL',
+                        dimInactiveCables: true,
+                        racks: [{ id: 'rack-legacy', name: 'Legacy', uHeight: 24, installedDevices: [] }],
+                        cables: [],
+                        groups: [],
+                        templates: [window.store.getTemplate('tpl-switch-24p')]
+                    };
+                    localStorage.setItem('rack_studio_data_v2', JSON.stringify(legacyState));
+                    const loaded = window.store.loadState();
+                    const ids = new Set(loaded.templates.map(t => t.id));
+                    return (
+                        ids.has('tpl-eltex-mes2324') &&
+                        ids.has('tpl-eltex-mes2324p') &&
+                        ids.has('tpl-eltex-mes2324b') &&
+                        !ids.has('tpl-pdu-1u')
+                    );
+                } finally {
+                    if (saved !== null) localStorage.setItem('rack_studio_data_v2', saved);
+                }
+            })()
+        """)
+        record("Legacy saved state merges new Eltex templates without resurrecting removed defaults", bool(legacy_migration_ok))
+
+        # -------------------------------------------------------------
         # TEST 9: Export / Import JSON & Reset
         # -------------------------------------------------------------
         print("\n--- Test Suite 9: JSON Persistence & Export ---")
