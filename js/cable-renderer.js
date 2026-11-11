@@ -8,7 +8,12 @@ export class CableRenderer {
   constructor(svgContainer, rackElement) {
     this.svg = svgContainer;
     this.rackEl = rackElement;
+    this.viewportEl = document.getElementById('rack-viewport') || rackElement.parentElement || rackElement;
     this.activeHoverCableId = null;
+    this.activeHoverCableGroup = null;
+    this.renderedCables = [];
+    this.hitSvgPoint = this.svg?.createSVGPoint?.() || null;
+    this._mouseDownPos = null;
 
     this.initEvents();
   }
@@ -30,10 +35,11 @@ export class CableRenderer {
 
     // Hover Spotlight: подсветка кабелей при наведении на любой порт устройства
     this.rackEl.addEventListener('mouseover', (e) => {
-      if (store.cableDraft) return;
+      if (store.cableDraft || document.body.classList.contains('is-dragging-device')) return;
       const portEl = e.target.closest('[data-port-id][data-device-id]');
       if (!portEl) return;
 
+      this.clearCableHover(true);
       const key = `${portEl.dataset.deviceId}:${portEl.dataset.portId}`;
       this.applyPortFocus(key);
     });
@@ -45,16 +51,119 @@ export class CableRenderer {
       this.clearFocus();
     });
 
+    // Приоритет взаимодействия: порт > кабель > панель/слот
+    this.viewportEl.addEventListener('mousedown', (e) => {
+      this._mouseDownPos = { x: e.clientX, y: e.clientY };
+    });
+
+    this.viewportEl.addEventListener('mousemove', (e) => {
+      if (store.cableDraft || document.body.classList.contains('is-dragging-device')) {
+        this.clearCableHover(true);
+        this.viewportEl.style.cursor = '';
+        return;
+      }
+
+      if (e.target.closest('.port-slot')) {
+        this.clearCableHover(true);
+        this.viewportEl.style.cursor = '';
+        return;
+      }
+
+      const hit = this.findCableAtClientPoint(e.clientX, e.clientY);
+      if (hit) {
+        this.setCableHover(hit, e.clientX, e.clientY);
+        this.viewportEl.style.cursor = 'pointer';
+      } else {
+        if (this.activeHoverCableId !== null) {
+          this.clearCableHover(false);
+        }
+        this.viewportEl.style.cursor = '';
+      }
+    });
+
+    this.viewportEl.addEventListener('mouseleave', () => {
+      if (this.activeHoverCableId !== null) {
+        this.clearCableHover(false);
+      }
+      this.viewportEl.style.cursor = '';
+    });
+
+    this.viewportEl.addEventListener('click', (e) => {
+      if (store.cableDraft || document.body.classList.contains('is-dragging-device')) return;
+      if (e.target.closest('.port-slot')) return;
+      if (this._mouseDownPos && Math.hypot(e.clientX - this._mouseDownPos.x, e.clientY - this._mouseDownPos.y) >= 5) {
+        return;
+      }
+
+      const hit = this.findCableAtClientPoint(e.clientX, e.clientY);
+      if (hit) {
+        e.stopPropagation();
+        store.setSelection({ type: 'cable', id: hit.cable.id, data: hit.cable });
+      }
+    }, true);
+
     const ro = new ResizeObserver(() => {
       this.render();
     });
     ro.observe(this.rackEl);
   }
 
+  findCableAtClientPoint(clientX, clientY) {
+    if (!this.renderedCables.length || !this.svg) return null;
+    const svgRect = this.svg.getBoundingClientRect();
+    if (!this.hitSvgPoint && this.svg.createSVGPoint) {
+      this.hitSvgPoint = this.svg.createSVGPoint();
+    }
+    if (!this.hitSvgPoint) return null;
+
+    this.hitSvgPoint.x = clientX - svgRect.left;
+    this.hitSvgPoint.y = clientY - svgRect.top;
+
+    for (let i = this.renderedCables.length - 1; i >= 0; i--) {
+      const item = this.renderedCables[i];
+      if (typeof item.hitPath.isPointInStroke === 'function' && item.hitPath.isPointInStroke(this.hitSvgPoint)) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  setCableHover(item, clientX, clientY) {
+    const cablesLayer = this.svg.querySelector('#cables-layer');
+    if (!cablesLayer) return;
+
+    if (this.activeHoverCableId !== item.cable.id) {
+      this.clearFocus();
+      this.activeHoverCableId = item.cable.id;
+      this.activeHoverCableGroup = item.g;
+      cablesLayer.classList.add('cables-has-focus');
+      item.g.classList.add('is-focused');
+      item.p1.element?.classList.add('port-cable-hover');
+      item.p2.element?.classList.add('port-cable-hover');
+    }
+
+    const svgRect = this.svg.getBoundingClientRect();
+    this.showTooltip(item.cable, clientX - svgRect.left, clientY - svgRect.top + 18);
+  }
+
+  clearCableHover(keepPortFocus = false) {
+    if (this.activeHoverCableId === null) {
+      if (!keepPortFocus) this.hideTooltip();
+      return;
+    }
+    this.activeHoverCableId = null;
+    this.activeHoverCableGroup = null;
+    this.hideTooltip();
+    if (!keepPortFocus) {
+      this.clearFocus();
+    }
+  }
+
   applyPortFocus(portKey) {
     const cablesLayer = this.svg.querySelector('#cables-layer');
     if (!cablesLayer) return;
 
+    this.clearFocus();
     const groups = cablesLayer.querySelectorAll('.cable-group');
     let matchedAny = false;
 
@@ -92,13 +201,30 @@ export class CableRenderer {
 
     const jackEl = portSlot.querySelector('.port-jack') || portSlot;
     const jackRect = jackEl.getBoundingClientRect();
+    const deviceEl = portSlot.closest('.installed-device');
+    const devRect = deviceEl ? deviceEl.getBoundingClientRect() : jackRect;
     const svgRect = this.svg.getBoundingClientRect();
 
     return {
       x: jackRect.left + jackRect.width / 2 - svgRect.left,
       y: jackRect.top + jackRect.height / 2 - svgRect.top,
+      devTop: devRect.top - svgRect.top,
+      devBottom: devRect.bottom - svgRect.top,
+      labelPos: portSlot.dataset.labelPos || 'bottom',
+      deviceId,
       element: portSlot
     };
+  }
+
+  getSeamExitY(portCoord, lane = 0) {
+    const seamStagger = ((lane % 3) - 1) * 1.5;
+    if (portCoord.labelPos === 'top' && typeof portCoord.devTop === 'number') {
+      return Math.max(portCoord.devTop, portCoord.y - 28) + seamStagger;
+    }
+    if (typeof portCoord.devBottom === 'number') {
+      return Math.min(portCoord.devBottom, portCoord.y + 28) + seamStagger;
+    }
+    return portCoord.y + 16 + seamStagger;
   }
 
   getRackBounds() {
@@ -117,19 +243,33 @@ export class CableRenderer {
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
     const verticalDistance = Math.abs(dy);
-    const isAdjacent = verticalDistance < 80;
+    const sameRowBand = verticalDistance <= 22;
 
-    let slack;
     let cx1, cy1, cx2, cy2;
 
-    if (isAdjacent) {
-      slack = 36 + (cableIndex % 5) * 4;
-      cx1 = p1.x + dx * 0.15;
-      cy1 = p1.y + slack;
-      cx2 = p2.x - dx * 0.15;
-      cy2 = p2.y + slack;
+    if (sameRowBand) {
+      const dir = (p1.labelPos === 'top' && p2.labelPos === 'top') ? -1 : 1;
+      const slack = 15 + (cableIndex % 4) * 3;
+      const bowX = Math.abs(dx) < 8 ? 10 : 0;
+      cx1 = p1.x + dx * 0.2 + bowX;
+      cy1 = p1.y + dir * slack;
+      cx2 = p2.x - dx * 0.2 + bowX;
+      cy2 = p2.y + dir * slack;
+    } else if (verticalDistance < 85) {
+      const offset = Math.min(48, Math.max(18, verticalDistance * 0.36)) + (cableIndex % 4) * 3;
+      if (dy > 0) {
+        cx1 = p1.x + dx * 0.22;
+        cy1 = p1.y + offset;
+        cx2 = p2.x - dx * 0.22;
+        cy2 = p2.y - offset * 0.75;
+      } else {
+        cx1 = p1.x + dx * 0.22;
+        cy1 = p1.y - offset * 0.75;
+        cx2 = p2.x - dx * 0.22;
+        cy2 = p2.y + offset;
+      }
     } else {
-      slack = Math.min(95, Math.max(45, verticalDistance * 0.25)) + (cableIndex % 4) * 5;
+      const slack = Math.min(95, Math.max(45, verticalDistance * 0.25)) + (cableIndex % 4) * 5;
       if (dy > 0) {
         cx1 = p1.x + dx * 0.2;
         cy1 = p1.y + slack;
@@ -148,7 +288,6 @@ export class CableRenderer {
 
   generateChannelPath(p1, p2, cableIndex = 0, channelState = null, rackBounds = null) {
     const verticalDistance = Math.abs(p2.y - p1.y);
-    // Короткие соединения (соседние юниты или на одном устройстве) рисуем компактной дугой
     if (verticalDistance <= 85 || !rackBounds) {
       return this.generateArcPath(p1, p2, cableIndex);
     }
@@ -172,18 +311,18 @@ export class CableRenderer {
       ? Math.min(rackBounds.left - 14, p1.x - 26, p2.x - 26) - laneOffset
       : Math.max(rackBounds.right + 14, p1.x + 26, p2.x + 26) + laneOffset;
 
-    const dropOffset = 14 + (lane % 4) * 3;
-    const y1Out = p1.y + dropOffset;
-    const y2Out = p2.y + dropOffset;
-    const dirY = y2Out > y1Out ? 1 : -1;
-    const r = 10;
+    const y1Out = this.getSeamExitY(p1, lane);
+    const y2Out = this.getSeamExitY(p2, lane);
+    const dirY = y2Out >= y1Out ? 1 : -1;
+    const r = 8;
+    const ry = Math.min(r, Math.abs(y2Out - y1Out) / 2);
 
     return [
       `M ${p1.x.toFixed(1)},${p1.y.toFixed(1)}`,
       `Q ${p1.x.toFixed(1)},${y1Out.toFixed(1)} ${(p1.x + side * r).toFixed(1)},${y1Out.toFixed(1)}`,
       `L ${(channelX - side * r).toFixed(1)},${y1Out.toFixed(1)}`,
-      `Q ${channelX.toFixed(1)},${y1Out.toFixed(1)} ${channelX.toFixed(1)},${(y1Out + dirY * r).toFixed(1)}`,
-      `L ${channelX.toFixed(1)},${(y2Out - dirY * r).toFixed(1)}`,
+      `Q ${channelX.toFixed(1)},${y1Out.toFixed(1)} ${channelX.toFixed(1)},${(y1Out + dirY * ry).toFixed(1)}`,
+      `L ${channelX.toFixed(1)},${(y2Out - dirY * ry).toFixed(1)}`,
       `Q ${channelX.toFixed(1)},${y2Out.toFixed(1)} ${(channelX - side * r).toFixed(1)},${y2Out.toFixed(1)}`,
       `L ${(p2.x + side * r).toFixed(1)},${y2Out.toFixed(1)}`,
       `Q ${p2.x.toFixed(1)},${y2Out.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`
@@ -203,6 +342,10 @@ export class CableRenderer {
     if (!cablesLayer) return;
     cablesLayer.innerHTML = '';
     cablesLayer.classList.remove('cables-has-focus');
+    this.renderedCables = [];
+    this.activeHoverCableId = null;
+    this.activeHoverCableGroup = null;
+    this.hideTooltip();
 
     const cables = store.getCablesForActiveRack();
     const activeFilter = store.getActiveGroupFilter();
@@ -242,8 +385,10 @@ export class CableRenderer {
       hitPath.setAttribute('d', pathData);
       hitPath.setAttribute('fill', 'none');
       hitPath.setAttribute('stroke', 'transparent');
-      hitPath.setAttribute('stroke-width', '16');
-      hitPath.style.cursor = 'pointer';
+      hitPath.setAttribute('stroke-width', '14');
+      hitPath.setAttribute('stroke-linecap', 'round');
+      hitPath.setAttribute('stroke-linejoin', 'round');
+      hitPath.setAttribute('pointer-events', 'none');
 
       // Тёмная подложка («эффект моста») для чёткого разделения пересекающихся кабелей
       const casingPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -304,28 +449,7 @@ export class CableRenderer {
       g.appendChild(boot2);
       g.appendChild(hitPath);
 
-      hitPath.addEventListener('click', (e) => {
-        e.stopPropagation();
-        store.setSelection({ type: 'cable', id: cable.id, data: cable });
-      });
-
-      hitPath.addEventListener('mouseenter', () => {
-        this.activeHoverCableId = cable.id;
-        cablesLayer.classList.add('cables-has-focus');
-        g.classList.add('is-focused');
-        p1.element?.classList.add('port-cable-hover');
-        p2.element?.classList.add('port-cable-hover');
-        this.showTooltip(cable, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2 + 20);
-      });
-
-      hitPath.addEventListener('mouseleave', () => {
-        this.activeHoverCableId = null;
-        cablesLayer.classList.remove('cables-has-focus');
-        g.classList.remove('is-focused');
-        p1.element?.classList.remove('port-cable-hover');
-        p2.element?.classList.remove('port-cable-hover');
-        this.hideTooltip();
-      });
+      this.renderedCables.push({ cable, g, hitPath, p1, p2 });
 
       cablesLayer.appendChild(g);
     });

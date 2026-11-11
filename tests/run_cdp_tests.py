@@ -527,6 +527,58 @@ async def run_test_suite():
         drawer_has_cable = await client.eval("document.getElementById('drawer-cable-label') !== null")
         record("Select cable opens Inspector Drawer with properties", drawer_visible and drawer_has_cable)
 
+        # Close group modal left open from Test Suite 4 before mouse hit-testing
+        await client.eval("document.getElementById('close-group-modal')?.click(); window.store.clearSelection();")
+        await asyncio.sleep(0.1)
+
+        # Verify upper-row cable does not overlap lower-row ports & lower-row port accepts clicks
+        p2_info = await client.eval(f"""
+            (() => {{
+                const rack = window.store.getActiveRack();
+                const sw = rack.installedDevices.find(d => d.templateId === 'tpl-switch-24p');
+                if (!sw) return null;
+                const swEl = document.querySelector(`#rack-container .installed-device[data-device-id="${{sw.id}}"]`);
+                const p2Slot = swEl?.querySelector('.port-slot[data-port-id="p-2"] .port-jack');
+                if (!p2Slot) return null;
+                p2Slot.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+                const r = p2Slot.getBoundingClientRect();
+                const hitCable = window.app.cableRenderer.findCableAtClientPoint(r.left + r.width / 2, r.top + r.height / 2);
+                return {{ x: r.left + r.width / 2, y: r.top + r.height / 2, overlapsLowerPort: Boolean(hitCable) }};
+            }})()
+        """)
+        lower_port_clear_and_clickable = False
+        if p2_info and not p2_info["overlapsLowerPort"]:
+            await client.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": p2_info["x"], "y": p2_info["y"], "button": "left", "clickCount": 1})
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": p2_info["x"], "y": p2_info["y"], "button": "left", "clickCount": 1})
+            await asyncio.sleep(0.15)
+            draft_port = await client.eval("window.store.cableDraft ? window.store.cableDraft.portId : null")
+            await client.eval("window.store.cancelCableDraft()")
+            lower_port_clear_and_clickable = (draft_port == "p-2")
+        record("Upper-row cable clears lower-row ports and lower-row port accepts clicks", lower_port_clear_and_clickable)
+
+        # Verify clicking cable along its side channel selects cable via isPointInStroke
+        cable_pt = await client.eval(f"""
+            (() => {{
+                const cr = window.app.cableRenderer;
+                const item = cr.renderedCables.find(c => c.cable.id === '{cable_connected}');
+                if (!item || !item.hitPath.getTotalLength) return null;
+                const len = item.hitPath.getTotalLength();
+                const pt = item.hitPath.getPointAtLength(len * 0.5);
+                const svgRect = cr.svg.getBoundingClientRect();
+                return {{ x: svgRect.left + pt.x, y: svgRect.top + pt.y }};
+            }})()
+        """)
+        cable_channel_selectable = False
+        if cable_pt:
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": cable_pt["x"], "y": cable_pt["y"]})
+            await asyncio.sleep(0.1)
+            hover_id = await client.eval("window.app.cableRenderer.activeHoverCableId")
+            await client.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": cable_pt["x"], "y": cable_pt["y"], "button": "left", "clickCount": 1})
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": cable_pt["x"], "y": cable_pt["y"], "button": "left", "clickCount": 1})
+            await asyncio.sleep(0.15)
+            selected_cable_id = await client.eval("window.store.selectedEntity?.id || null")
+            cable_channel_selectable = (hover_id == cable_connected and selected_cable_id == cable_connected)
+        record("Hover and click along cable channel hits cable cleanly", cable_channel_selectable)
         # -------------------------------------------------------------
         # TEST 6: Switch CLI Terminal Modal
         # -------------------------------------------------------------
