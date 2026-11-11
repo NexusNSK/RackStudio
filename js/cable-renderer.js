@@ -3,6 +3,7 @@
  */
 
 import { store } from './state.js';
+import { getPortDisplayName } from './cable-length.js';
 
 export class CableRenderer {
   constructor(svgContainer, rackElement) {
@@ -63,9 +64,13 @@ export class CableRenderer {
         return;
       }
 
-      if (e.target.closest('.port-slot')) {
+      if (e.target.closest('.port-slot') || e.target.closest('.inter-rack-badge')) {
         this.clearCableHover(true);
-        this.viewportEl.style.cursor = '';
+        if (e.target.closest('.inter-rack-badge')) {
+          this.viewportEl.style.cursor = 'pointer';
+        } else {
+          this.viewportEl.style.cursor = '';
+        }
         return;
       }
 
@@ -90,7 +95,7 @@ export class CableRenderer {
 
     this.viewportEl.addEventListener('click', (e) => {
       if (store.cableDraft || document.body.classList.contains('is-dragging-device')) return;
-      if (e.target.closest('.port-slot')) return;
+      if (e.target.closest('.port-slot') || e.target.closest('.inter-rack-badge')) return;
       if (this._mouseDownPos && Math.hypot(e.clientX - this._mouseDownPos.x, e.clientY - this._mouseDownPos.y) >= 5) {
         return;
       }
@@ -371,14 +376,15 @@ export class CableRenderer {
     const selectedDeviceId = isDeviceSelected ? selectedEntity.id : null;
 
     const rackBounds = this.getRackBounds();
-    const channelState = { leftLane: 0, rightLane: 0 };
+    const channelState = { leftLane: 0, rightLane: 0, crossLeft: 0, crossRight: 0 };
 
     cables.forEach((cable, index) => {
       const p1 = this.getPortCoordinates(cable.from.deviceId, cable.from.portId);
       const p2 = this.getPortCoordinates(cable.to.deviceId, cable.to.portId);
 
-      if (!p1 || !p2) return;
+      if (!p1 && !p2) return;
 
+      const isInterRack = !(p1 && p2);
       const isGroupMatch = (activeFilter === 'ALL') || (cable.groupId === activeFilter);
       const isSelected = selectedEntity?.type === 'cable' && selectedEntity.id === cable.id;
       const isDeviceMatch = !isDeviceSelected || (cable.from.deviceId === selectedDeviceId || cable.to.deviceId === selectedDeviceId);
@@ -390,12 +396,46 @@ export class CableRenderer {
       const isEffectiveActive = isGroupMatch && isDeviceMatch;
 
       const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-      g.setAttribute('class', `cable-group ${isEffectiveActive ? 'active-group' : 'inactive-group'} ${isSelected ? 'selected' : ''}`);
+      g.setAttribute('class', `cable-group ${isInterRack ? 'inter-rack-cable' : ''} ${isEffectiveActive ? 'active-group' : 'inactive-group'} ${isSelected ? 'selected' : ''}`);
       g.dataset.cableId = cable.id;
       g.dataset.fromKey = `${cable.from.deviceId}:${cable.from.portId}`;
       g.dataset.toKey = `${cable.to.deviceId}:${cable.to.portId}`;
 
-      const pathData = this.generatePath(p1, p2, index, channelState, rackBounds);
+      let pathData = '';
+      let endBootCoord = p2;
+      let startBootCoord = p1;
+      let crossBadgeInfo = null;
+
+      if (!isInterRack) {
+        pathData = this.generatePath(p1, p2, index, channelState, rackBounds);
+      } else {
+        const localCoord = p1 || p2;
+        const remoteEnd = p1 ? cable.to : cable.from;
+        const remoteLoc = store.findDeviceLocation(remoteEnd.deviceId);
+        const side = localCoord.x < rackBounds.centerX ? -1 : 1;
+        const crossLane = side === -1 ? (channelState.crossLeft++ % 6) : (channelState.crossRight++ % 6);
+        const outY = this.getSeamExitY(localCoord, crossLane);
+        const outX = side === -1
+          ? rackBounds.left - 16 - (crossLane * 4)
+          : rackBounds.right + 16 + (crossLane * 4);
+
+        pathData = [
+          `M ${localCoord.x.toFixed(1)},${localCoord.y.toFixed(1)}`,
+          `Q ${localCoord.x.toFixed(1)},${outY.toFixed(1)} ${(localCoord.x + side * 8).toFixed(1)},${outY.toFixed(1)}`,
+          `L ${outX.toFixed(1)},${outY.toFixed(1)}`
+        ].join(' ');
+
+        startBootCoord = localCoord;
+        endBootCoord = { x: outX, y: outY, element: localCoord.element };
+        crossBadgeInfo = {
+          x: outX,
+          y: outY,
+          side,
+          remoteRackId: remoteLoc?.rack?.id || null,
+          remoteRackName: remoteLoc?.rack?.name || 'Другая стойка',
+          remotePortLabel: getPortDisplayName(remoteLoc?.template, remoteEnd.portId) || remoteEnd.portId
+        };
+      }
 
       const hitPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       hitPath.setAttribute('d', pathData);
@@ -433,6 +473,9 @@ export class CableRenderer {
       corePath.setAttribute('stroke-linecap', 'round');
       corePath.setAttribute('stroke-linejoin', 'round');
       corePath.setAttribute('stroke-width', isSelected ? '4' : (isEffectiveActive && activeFilter !== 'ALL') ? '2.8' : '2.2');
+      if (isInterRack) {
+        corePath.setAttribute('stroke-dasharray', '6 3');
+      }
 
       if (!isEffectiveActive) {
         corePath.setAttribute('stroke-opacity', '0.1');
@@ -445,15 +488,15 @@ export class CableRenderer {
       corePath.setAttribute('class', 'cable-core');
 
       const boot1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      boot1.setAttribute('cx', p1.x);
-      boot1.setAttribute('cy', p1.y);
+      boot1.setAttribute('cx', startBootCoord.x);
+      boot1.setAttribute('cy', startBootCoord.y);
       boot1.setAttribute('r', isEffectiveActive ? '3.2' : '2');
       boot1.setAttribute('fill', cable.color);
       boot1.setAttribute('opacity', isEffectiveActive ? '1' : '0.18');
 
       const boot2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      boot2.setAttribute('cx', p2.x);
-      boot2.setAttribute('cy', p2.y);
+      boot2.setAttribute('cx', endBootCoord.x);
+      boot2.setAttribute('cy', endBootCoord.y);
       boot2.setAttribute('r', isEffectiveActive ? '3.2' : '2');
       boot2.setAttribute('fill', cable.color);
       boot2.setAttribute('opacity', isEffectiveActive ? '1' : '0.18');
@@ -465,7 +508,63 @@ export class CableRenderer {
       g.appendChild(boot2);
       g.appendChild(hitPath);
 
-      this.renderedCables.push({ cable, g, hitPath, p1, p2 });
+      if (crossBadgeInfo) {
+        const badgeG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        badgeG.setAttribute('class', 'inter-rack-badge cursor-pointer pointer-events-auto');
+        badgeG.dataset.targetRackId = crossBadgeInfo.remoteRackId || '';
+        badgeG.dataset.cableId = cable.id;
+
+        const shortRack = crossBadgeInfo.remoteRackName.length > 12
+          ? `${crossBadgeInfo.remoteRackName.slice(0, 11)}…`
+          : crossBadgeInfo.remoteRackName;
+        const labelText = `⇄ ${shortRack}`;
+        const pillW = Math.max(58, labelText.length * 6.2 + 12);
+        const pillH = 16;
+        const rectX = crossBadgeInfo.side === -1
+          ? crossBadgeInfo.x - pillW - 4
+          : crossBadgeInfo.x + 4;
+        const rectY = crossBadgeInfo.y - pillH / 2;
+
+        const pillRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        pillRect.setAttribute('x', rectX);
+        pillRect.setAttribute('y', rectY);
+        pillRect.setAttribute('width', pillW);
+        pillRect.setAttribute('height', pillH);
+        pillRect.setAttribute('rx', '4');
+        pillRect.setAttribute('fill', '#111827');
+        pillRect.setAttribute('stroke', cable.color || '#6366f1');
+        pillRect.setAttribute('stroke-width', '1.2');
+        pillRect.setAttribute('fill-opacity', isEffectiveActive ? '0.95' : '0.35');
+
+        const pillTxt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        pillTxt.setAttribute('x', rectX + pillW / 2);
+        pillTxt.setAttribute('y', crossBadgeInfo.y + 3);
+        pillTxt.setAttribute('text-anchor', 'middle');
+        pillTxt.setAttribute('fill', isEffectiveActive ? '#e0e7ff' : '#64748b');
+        pillTxt.setAttribute('font-size', '9');
+        pillTxt.setAttribute('font-family', 'JetBrains Mono, monospace');
+        pillTxt.textContent = labelText;
+
+        badgeG.appendChild(pillRect);
+        badgeG.appendChild(pillTxt);
+        badgeG.addEventListener('click', (evt) => {
+          evt.stopPropagation();
+          if (crossBadgeInfo.remoteRackId) {
+            store.setActiveRack(crossBadgeInfo.remoteRackId);
+            store.setSelection({ type: 'cable', id: cable.id, data: cable });
+          }
+        });
+        g.appendChild(badgeG);
+      }
+
+      this.renderedCables.push({
+        cable,
+        g,
+        hitPath,
+        p1: startBootCoord,
+        p2: endBootCoord,
+        isInterRack
+      });
 
       cablesLayer.appendChild(g);
     });
@@ -480,8 +579,16 @@ export class CableRenderer {
 
     if (!store.cableDraft) return;
 
-    const p1 = this.getPortCoordinates(store.cableDraft.deviceId, store.cableDraft.portId);
-    if (!p1) return;
+    let p1 = this.getPortCoordinates(store.cableDraft.deviceId, store.cableDraft.portId);
+    const isCrossRackDraft = !p1;
+    if (!p1) {
+      const rackBounds = this.getRackBounds();
+      p1 = {
+        x: Math.max(0, rackBounds.left - 12),
+        y: 52,
+        labelPos: 'top'
+      };
+    }
 
     const p2 = this.clientToSvgPoint(store.cableDraft.clientX, store.cableDraft.clientY);
 
@@ -490,7 +597,7 @@ export class CableRenderer {
 
     const activeGroupId = store.getActiveGroupFilter();
     const activeGroup = activeGroupId !== 'ALL' ? store.getGroup(activeGroupId) : null;
-    const draftColor = activeGroup?.color || '#00d2ff';
+    const draftColor = activeGroup?.color || (isCrossRackDraft ? '#818cf8' : '#00d2ff');
 
     const draftPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     draftPath.setAttribute('d', pathData);
@@ -530,21 +637,25 @@ export class CableRenderer {
       ? `<span class="inline-block w-2.5 h-2.5 rounded-full mr-1.5" style="background:${grp.color}"></span><span class="font-medium text-white">${grp.name}</span>`
       : '<span class="text-slate-400">Без группы</span>';
 
-    const fromDev = store.getActiveRack()?.installedDevices.find(d => d.id === cable.from.deviceId);
-    const toDev = store.getActiveRack()?.installedDevices.find(d => d.id === cable.to.deviceId);
+    const fromLoc = store.findDeviceLocation(cable.from.deviceId);
+    const toLoc = store.findDeviceLocation(cable.to.deviceId);
+    const interRack = Boolean(fromLoc && toLoc && fromLoc.rack.id !== toLoc.rack.id);
+    const fromPortName = getPortDisplayName(fromLoc?.template, cable.from.portId) || cable.from.portId;
+    const toPortName = getPortDisplayName(toLoc?.template, cable.to.portId) || cable.to.portId;
 
     tip.innerHTML = `
-      <div class="flex items-center gap-2 mb-1.5 border-b border-slate-700/80 pb-1">
-        ${grpBadge}
+      <div class="flex items-center justify-between gap-2 mb-1.5 border-b border-slate-700/80 pb-1">
+        <div>${grpBadge}</div>
+        ${interRack ? '<span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-700/80">Межстоечный</span>' : ''}
       </div>
       <div class="flex items-center gap-1.5 font-mono text-[11px] text-cyan-300">
-        <span>${fromDev?.customName || 'Dev'}: <b>${cable.from.portId}</b></span>
+        <span>${interRack && fromLoc ? `[${fromLoc.rack.name}] ` : ''}${fromLoc?.device?.customName || 'Dev'}: <b>${fromPortName}</b></span>
         <span class="text-slate-500">⇄</span>
-        <span>${toDev?.customName || 'Dev'}: <b>${cable.to.portId}</b></span>
+        <span>${interRack && toLoc ? `[${toLoc.rack.name}] ` : ''}${toLoc?.device?.customName || 'Dev'}: <b>${toPortName}</b></span>
       </div>
       <div class="mt-1 text-[10px] text-slate-400 flex justify-between gap-3">
         <span>Тип: <b class="text-slate-300">${cable.type}</b></span>
-        <span>Длина: <b class="text-slate-300">${cable.lengthM}м</b></span>
+        <span>Длина: <b class="text-slate-300">${cable.lengthM}м</b>${cable.lengthAuto ? ' <span class="text-cyan-400">(авто)</span>' : ''}</span>
       </div>
       ${cable.label ? `<div class="mt-1 text-[10px] text-amber-300 font-sans italic">"${cable.label}"</div>` : ''}
     `;

@@ -81,6 +81,11 @@ body {
   border-color: #38bdf8 !important;
 }
 
+.port-draft-source .port-jack {
+  box-shadow: 0 0 12px #22d3ee, inset 0 0 5px #22d3ee !important;
+  border-color: #22d3ee !important;
+}
+
 .port-num {
   transition: transform 0.15s ease, color 0.15s ease;
 }
@@ -175,4 +180,52 @@ body.is-dragging-device .port-slot {
   background-image: 
     linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+}
+
+.inter-rack-badge rect {
+  transition: transform 0.15s ease, fill-opacity 0.15s ease;
+}
+.inter-rack-badge:hover rect {
+  fill-opacity: 1 !important;
+  filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.65));
+}
+
+.print-section {
+  break-inside: avoid;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    background-image: none !important;
+    color: #0f172a !important;
+    display: block !important;
+  }
+
+  body > *:not(#print-report-root) {
+    display: none !important;
+  }
+
+  #print-report-root {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-rack-wrap,
+  .print-rack-wrap * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
 }

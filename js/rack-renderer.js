@@ -237,11 +237,26 @@ export class RackRenderer {
   renderPortElement(device, port, activeFilter, template = null) {
     const cable = store.getCableByPort(device.id, port.id);
     const isConnected = !!cable;
+    const isInterRack = isConnected && store.isInterRackCable(cable);
     const cableGroup = cable ? store.getGroup(cable.groupId) : null;
+    const isDraftSource = Boolean(
+      store.cableDraft &&
+      store.cableDraft.deviceId === device.id &&
+      store.cableDraft.portId === port.id
+    );
     
     let isMatch = true;
     if (activeFilter !== 'ALL') {
       isMatch = cable && cable.groupId === activeFilter;
+    }
+
+    let remoteTitleSuffix = '';
+    if (isInterRack) {
+      const remoteEnd = cable.from.deviceId === device.id ? cable.to : cable.from;
+      const remoteLoc = store.findDeviceLocation(remoteEnd.deviceId);
+      if (remoteLoc) {
+        remoteTitleSuffix = ` ➔ [${remoteLoc.rack.name}] ${remoteLoc.device.customName}:${remoteEnd.portId}`;
+      }
     }
 
     const hasCustomImage = Boolean(template?.style?.customImage);
@@ -252,14 +267,17 @@ export class RackRenderer {
       : 'border-slate-600 bg-slate-900 text-slate-300';
     let glowStyle = '';
 
-    if (isConnected && cableGroup) {
+    if (isDraftSource) {
+      glowStyle = 'box-shadow: 0 0 12px #22d3ee, inset 0 0 5px #22d3ee; border-color: #22d3ee;';
+    } else if (isConnected && cableGroup) {
       if (isMatch) {
         glowStyle = `box-shadow: 0 0 8px ${cableGroup.color}, inset 0 0 4px ${cableGroup.color}; border-color: ${cableGroup.color};`;
       } else {
         glowStyle = 'opacity: 0.35; filter: grayscale(80%);';
       }
     } else if (isConnected && !cableGroup) {
-      glowStyle = 'box-shadow: 0 0 6px #fff; border-color: #fff;';
+      const baseGlow = isInterRack ? '#818cf8' : '#fff';
+      glowStyle = `box-shadow: 0 0 6px ${baseGlow}; border-color: ${baseGlow};`;
     }
 
     let portIcon = '';
@@ -289,13 +307,14 @@ export class RackRenderer {
       : (isSilver ? 'text-slate-700 group-hover:text-cyan-700' : 'text-slate-400 group-hover:text-cyan-300');
 
     return `
-      <div class="port-slot absolute flex items-center justify-center -translate-x-1/2 -translate-y-1/2 cursor-crosshair group transition-all hover:z-30"
+      <div class="port-slot absolute flex items-center justify-center -translate-x-1/2 -translate-y-1/2 cursor-crosshair group transition-all hover:z-30 ${isDraftSource ? 'port-draft-source' : ''}"
            style="left: ${port.x}%; top: ${port.y}%;"
-           title="${port.name}${port.speed ? ` (${port.speed})` : ''}"
+           title="${port.name}${port.speed ? ` (${port.speed})` : ''}${remoteTitleSuffix}"
            data-device-id="${device.id}"
            data-port-id="${port.id}"
            data-port-name="${port.name}"
            data-port-type="${port.type}"
+           data-inter-rack="${isInterRack ? 'true' : 'false'}"
            data-label-pos="${isLabelAbove ? 'top' : 'bottom'}">
         
         <div class="port-jack ${portSize} rounded-[3px] border flex items-center justify-center relative ${portColorClass} transition-all duration-200 group-hover:scale-125 group-hover:border-cyan-400 group-hover:z-30"
@@ -303,7 +322,7 @@ export class RackRenderer {
           ${portIcon}
 
           ${isConnected ? `
-            <span class="absolute -top-0.5 -right-0.5 w-1 h-1 rounded-full ${isMatch ? 'bg-emerald-400 shadow-[0_0_4px_#34d399]' : 'bg-slate-500'}"></span>
+            <span class="absolute -top-0.5 -right-0.5 w-1 h-1 rounded-full ${!isMatch ? 'bg-slate-500' : isInterRack ? 'bg-indigo-400 shadow-[0_0_5px_#818cf8]' : 'bg-emerald-400 shadow-[0_0_4px_#34d399]'}"></span>
           ` : ''}
         </div>
 
@@ -359,6 +378,16 @@ export class RackRenderer {
     }
 
     return out;
+  }
+
+  updateDraftPortHighlight() {
+    this.container.querySelectorAll('.port-draft-source').forEach(el => el.classList.remove('port-draft-source'));
+    if (store.cableDraft) {
+      const target = this.container.querySelector(
+        `.port-slot[data-device-id="${store.cableDraft.deviceId}"][data-port-id="${store.cableDraft.portId}"]`
+      );
+      target?.classList.add('port-draft-source');
+    }
   }
 
   attachInteractiveHandlers() {

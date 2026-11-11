@@ -99,11 +99,27 @@ export class CliEditor {
   }
 
   createInitialScaffold(device, template) {
+    const isEltex = String(template?.vendor || '').toLowerCase().includes('eltex');
+    const host = (device.customName || 'Switch').replace(/\s+/g, '-');
+    if (isEltex) {
+      return `! =======================================================
+! Конфигурация Eltex: ${device.customName} (${template?.name || 'MES'})
+! Создано в RackStudio
+! =======================================================
+hostname ${host}
+!
+! interface gigabitethernet 1/0/1
+!  switchport access vlan 10
+! interface tengigabitethernet 1/0/1
+!  switchport mode trunk
+!
+end`;
+    }
     return `! =======================================================
 ! Конфигурация: ${device.customName}
 ! Создано в RackStudio
 ! =======================================================
-hostname ${device.customName.replace(/\s+/g, '-')}
+hostname ${host}
 !
 end`;
   }

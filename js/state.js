@@ -3,6 +3,12 @@
  */
 
 import { DEFAULT_INITIAL_STATE, DEFAULT_DEVICE_TEMPLATES } from './default-data.js';
+import {
+  findDeviceLocation,
+  isInterRackCableInState,
+  calculateCableLengthEstimate,
+  INTER_RACK_DEFAULT_LENGTH_M
+} from './cable-length.js';
 
 const STORAGE_KEY = 'rack_studio_data_v2';
 const LEGACY_DEFAULT_TEMPLATE_IDS = [
@@ -16,6 +22,7 @@ const LEGACY_DEFAULT_TEMPLATE_IDS = [
 class StateStore {
   constructor() {
     this.listeners = new Set();
+    this._idSeq = 0;
     this.state = this.loadState();
     this.cableDraft = null;
     this.selectedEntity = null;
@@ -295,7 +302,45 @@ class StateStore {
     const activeRack = this.getActiveRack();
     if (!activeRack) return [];
     const deviceIds = new Set(activeRack.installedDevices.map(d => d.id));
-    return this.state.cables.filter(c => deviceIds.has(c.from.deviceId) && deviceIds.has(c.to.deviceId));
+    return this.state.cables.filter(c => deviceIds.has(c.from.deviceId) || deviceIds.has(c.to.deviceId));
+  }
+
+  findDeviceLocation(deviceId) {
+    return findDeviceLocation(this.state, deviceId);
+  }
+
+  isInterRackCable(cable) {
+    return isInterRackCableInState(this.state, cable);
+  }
+
+  getCableLengthEstimate(cable) {
+    return calculateCableLengthEstimate(this.state, cable, this.getCableRoutingMode());
+  }
+
+  getGroupsForCable(cable) {
+    const fromRack = this.findDeviceLocation(cable?.from?.deviceId)?.rack;
+    const toRack = this.findDeviceLocation(cable?.to?.deviceId)?.rack;
+    const activeRack = this.getActiveRack();
+    const rackIds = [];
+    if (activeRack?.id) rackIds.push(activeRack.id);
+    if (fromRack?.id && !rackIds.includes(fromRack.id)) rackIds.push(fromRack.id);
+    if (toRack?.id && !rackIds.includes(toRack.id)) rackIds.push(toRack.id);
+
+    const seen = new Set();
+    const result = [];
+    rackIds.forEach(rid => {
+      const rackObj = this.state.racks.find(r => r.id === rid);
+      this.getGroups(rid).forEach(g => {
+        if (!seen.has(g.id)) {
+          seen.add(g.id);
+          result.push({
+            ...g,
+            rackName: rackObj?.name || ''
+          });
+        }
+      });
+    });
+    return result;
   }
 
   getAllCables() {
@@ -315,7 +360,8 @@ class StateStore {
     if (this.state.activeRackId === rackId) return;
     this.state.activeRackId = rackId;
     this.state.activeGroupFilter = 'ALL';
-    this.clearSelection();
+    // Keep active cableDraft when switching racks so inter-rack patching works seamlessly
+    this.selectedEntity = null;
     this.notify('rack_changed', { rackId });
   }
 
@@ -408,7 +454,7 @@ class StateStore {
       return null;
     }
 
-    const deviceId = `dev-${Date.now()}`;
+    const deviceId = `dev-${Date.now()}-${++this._idSeq}`;
     const newDevice = {
       id: deviceId,
       templateId,
@@ -425,11 +471,11 @@ class StateStore {
   }
 
   moveDevice(deviceId, newU) {
-    const rack = this.getActiveRack();
-    if (!rack) return false;
-    const dev = rack.installedDevices.find(d => d.id === deviceId);
-    if (!dev) return false;
-    const template = this.getTemplate(dev.templateId);
+    const loc = this.findDeviceLocation(deviceId);
+    const rack = loc?.rack || this.getActiveRack();
+    const dev = loc?.device || rack?.installedDevices.find(d => d.id === deviceId);
+    if (!rack || !dev) return false;
+    const template = loc?.template || this.getTemplate(dev.templateId);
     const uHeight = template?.uHeight || 1;
 
     if (this.findDeviceSlotConflict(rack, newU, uHeight, deviceId)) {
@@ -437,12 +483,63 @@ class StateStore {
     }
 
     dev.uPosition = newU;
+    this.recalculateAutoCableLengthsForDevice(deviceId);
     this.notify('device_moved', { deviceId, newU });
     return true;
   }
 
+  findNearestFreeSlot(deviceId, direction) {
+    if (!direction) return null;
+    const loc = this.findDeviceLocation(deviceId);
+    if (!loc) return null;
+    const { rack, device, template } = loc;
+    const uHeight = template?.uHeight || 1;
+    const maxU = (rack.uHeight || 24) - uHeight + 1;
+    const step = direction > 0 ? 1 : -1;
+
+    for (let candidateU = device.uPosition + step; candidateU >= 1 && candidateU <= maxU; candidateU += step) {
+      if (!this.findDeviceSlotConflict(rack, candidateU, uHeight, deviceId)) {
+        return candidateU;
+      }
+    }
+    return null;
+  }
+
+  nudgeDevice(deviceId, direction) {
+    const targetU = this.findNearestFreeSlot(deviceId, direction);
+    if (targetU === null) return false;
+    return this.moveDevice(deviceId, targetU);
+  }
+
+  recalculateAutoCableLengthsForDevice(deviceId) {
+    const routingMode = this.getCableRoutingMode();
+    this.state.cables.forEach(c => {
+      if (c.lengthAuto !== true) return;
+      if (c.from.deviceId !== deviceId && c.to.deviceId !== deviceId) return;
+      const estimate = calculateCableLengthEstimate(this.state, c, routingMode);
+      if (!estimate.isInterRack) {
+        c.lengthM = estimate.lengthM;
+      }
+    });
+  }
+
+  recalculateAutoCableLengths() {
+    const routingMode = this.getCableRoutingMode();
+    let changed = false;
+    this.state.cables.forEach(c => {
+      if (c.lengthAuto !== true) return;
+      const estimate = calculateCableLengthEstimate(this.state, c, routingMode);
+      if (!estimate.isInterRack && c.lengthM !== estimate.lengthM) {
+        c.lengthM = estimate.lengthM;
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
   removeDevice(deviceId) {
-    const rack = this.getActiveRack();
+    const loc = this.findDeviceLocation(deviceId);
+    const rack = loc?.rack || this.getActiveRack();
     if (!rack) return;
     rack.installedDevices = rack.installedDevices.filter(d => d.id !== deviceId);
     this.state.cables = this.state.cables.filter(c => c.from.deviceId !== deviceId && c.to.deviceId !== deviceId);
@@ -453,9 +550,8 @@ class StateStore {
   }
 
   updateDevice(deviceId, updates) {
-    const rack = this.getActiveRack();
-    if (!rack) return;
-    const dev = rack.installedDevices.find(d => d.id === deviceId);
+    const loc = this.findDeviceLocation(deviceId);
+    const dev = loc?.device || this.getActiveRack()?.installedDevices.find(d => d.id === deviceId);
     if (!dev) return;
     Object.assign(dev, updates);
     this.notify('device_updated', { device: dev });
@@ -476,14 +572,44 @@ class StateStore {
     const group = groupId ? this.getGroup(groupId) : null;
     const defaultColor = group?.color || '#3b82f6';
 
+    const interRack = isInterRackCableInState(this.state, cableData);
+    const fromLoc = this.findDeviceLocation(cableData.from.deviceId);
+    const toLoc = this.findDeviceLocation(cableData.to.deviceId);
+    const fromPort = fromLoc?.template?.ports?.find(p => p.id === cableData.from.portId);
+    const toPort = toLoc?.template?.ports?.find(p => p.id === cableData.to.portId);
+
+    let inferredType = 'Cat6 UTP';
+    if (fromPort?.type === 'sfp' && toPort?.type === 'sfp') {
+      inferredType = interRack ? 'Fiber OM4' : '10G SFP+ DAC';
+    } else if (fromPort?.type === 'sfp' || toPort?.type === 'sfp') {
+      inferredType = interRack ? 'Fiber OM4' : 'Cat6A STP';
+    }
+
+    const hasExplicitLength = cableData.lengthM !== undefined && cableData.lengthM !== null && Number.isFinite(Number(cableData.lengthM));
+    let lengthM;
+    let lengthAuto;
+
+    if (!hasExplicitLength && !interRack) {
+      const estimate = calculateCableLengthEstimate(this.state, cableData, this.getCableRoutingMode());
+      lengthM = estimate.lengthM;
+      lengthAuto = true;
+    } else if (!hasExplicitLength && interRack) {
+      lengthM = INTER_RACK_DEFAULT_LENGTH_M;
+      lengthAuto = false;
+    } else {
+      lengthM = Number(cableData.lengthM);
+      lengthAuto = cableData.lengthAuto === true && !interRack;
+    }
+
     const newCable = {
-      id: `c-${Date.now()}`,
+      id: `c-${Date.now()}-${++this._idSeq}`,
       groupId,
       from: cableData.from,
       to: cableData.to,
       color: cableData.color || defaultColor,
-      type: cableData.type || 'Cat6 UTP',
-      lengthM: cableData.lengthM || 0.5,
+      type: cableData.type || inferredType,
+      lengthM,
+      lengthAuto,
       label: cableData.label || ''
     };
 
@@ -507,11 +633,25 @@ class StateStore {
     this.notify('cable_updated', { cable });
   }
 
+  setCableLengthAuto(cableId, enabled) {
+    const cable = this.state.cables.find(c => c.id === cableId);
+    if (!cable) return null;
+    if (enabled && !this.isInterRackCable(cable)) {
+      const estimate = calculateCableLengthEstimate(this.state, cable, this.getCableRoutingMode());
+      cable.lengthAuto = true;
+      cable.lengthM = estimate.lengthM;
+    } else {
+      cable.lengthAuto = false;
+    }
+    this.notify('cable_updated', { cable });
+    return cable;
+  }
+
   // Workplace Groups
   addGroup(name, color = '#00d2ff', vlan = 10, description = '', rackId = null) {
     const targetRackId = rackId || this.state.activeRackId;
     const newGroup = {
-      id: `grp-${Date.now()}`,
+      id: `grp-${Date.now()}-${++this._idSeq}`,
       rackId: targetRackId,
       name,
       color,
@@ -563,6 +703,7 @@ class StateStore {
 
   setCableRoutingMode(mode) {
     this.state.cableRoutingMode = mode === 'arcs' ? 'arcs' : 'channels';
+    this.recalculateAutoCableLengths();
     this.notify('filter_settings_changed', { cableRoutingMode: this.state.cableRoutingMode });
   }
 
@@ -601,7 +742,14 @@ class StateStore {
   }
 
   startCableDraft(deviceId, portId, clientX, clientY) {
-    this.cableDraft = { deviceId, portId, clientX, clientY };
+    const loc = this.findDeviceLocation(deviceId);
+    this.cableDraft = {
+      deviceId,
+      portId,
+      sourceRackId: loc?.rack?.id || this.state.activeRackId,
+      clientX,
+      clientY
+    };
     this.notify('cable_draft_started', this.cableDraft);
   }
 

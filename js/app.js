@@ -7,6 +7,9 @@ import { CableRenderer } from './cable-renderer.js';
 import { RackRenderer } from './rack-renderer.js';
 import { CliEditor } from './cli-editor.js';
 import { TemplateBuilder } from './template-builder.js';
+import { TopologyRenderer } from './topology-renderer.js';
+import { PrintPassport } from './print-passport.js';
+import { getPortDisplayName } from './cable-length.js';
 
 // Early exposure of global modal and action shortcuts for inline HTML triggers
 const RACK_ZOOM_MIN = 0.15;
@@ -32,6 +35,9 @@ window.zoomRackIn = () => (window.app ? window.app.stepRackZoom(1) : null);
 window.zoomRackOut = () => (window.app ? window.app.stepRackZoom(-1) : null);
 window.resetRackZoom = () => (window.app ? window.app.setRackZoom(1) : null);
 window.fitRackZoom = () => (window.app ? window.app.fitRackToViewport() : null);
+window.setWorkspaceView = (view) => (window.app ? window.app.setWorkspaceView(view) : null);
+window.openPrintModal = () => (window.app ? window.app.printPassport?.open() : null);
+window.closePrintModal = () => (window.app ? window.app.printPassport?.close() : null);
 
 class App {
   constructor() {
@@ -41,22 +47,37 @@ class App {
     this.rackViewportCanvas = document.getElementById('rack-viewport-canvas');
     this.rackZoomSizer = document.getElementById('rack-zoom-sizer');
     this.rackZoomStage = document.getElementById('rack-zoom-stage');
+    this.topologyViewport = document.getElementById('topology-viewport');
     this.rackZoom = this.loadZoomPreference();
+    this.workspaceView = 'rack';
 
     this.cableRenderer = new CableRenderer(this.svgContainer, this.rackContainer);
     this.rackRenderer = new RackRenderer(this.rackContainer, this.cableRenderer);
     this.cliEditor = new CliEditor(document.getElementById('cli-modal'));
     this.templateBuilder = new TemplateBuilder(document.getElementById('builder-modal'));
+    this.topologyRenderer = new TopologyRenderer(this.topologyViewport);
+    this.printPassport = new PrintPassport({
+      modalElement: document.getElementById('print-modal'),
+      reportRoot: document.getElementById('print-report-root'),
+      topologyRenderer: this.topologyRenderer,
+      onEnsureRackRendered: null
+    });
+    // Provide clean hidden snapshot helper so printing from Topology view still captures rack & cables
+    this.printPassport.captureRackSnapshotMarkup = () => {
+      return this.withRackRenderedForSnapshot(() => PrintPassport.prototype.captureRackSnapshotMarkup.call(this.printPassport));
+    };
 
     this.editingRackId = null;
 
     this.initGlobalWindowExposures();
     this.initEventListeners();
+    this.initKeyboardShortcuts();
     this.subscribeState();
 
     this.renderAll();
     this.applyRackZoom({ preserveScroll: false });
     this.updateRoutingModeUI();
+    this.updateWorkspaceViewUI();
     this.updateSyncBadge({ status: store.syncStatus, message: store.syncMessage });
   }
 
@@ -81,6 +102,9 @@ class App {
     window.zoomRackOut = () => this.stepRackZoom(-1);
     window.resetRackZoom = () => this.setRackZoom(1);
     window.fitRackZoom = () => this.fitRackToViewport();
+    window.setWorkspaceView = (view) => this.setWorkspaceView(view);
+    window.openPrintModal = () => this.printPassport?.open();
+    window.closePrintModal = () => this.printPassport?.close();
   }
 
   deleteRackConfirm(rackId) {
@@ -277,16 +301,247 @@ class App {
       });
       this.rackStageObserver.observe(this.rackZoomStage);
     }
+
+    // Topology view controls
+    document.getElementById('topo-scope-active')?.addEventListener('click', () => {
+      this.topologyRenderer.setScope('active');
+      this.updateTopologyToolbarUI();
+    });
+    document.getElementById('topo-scope-all')?.addEventListener('click', () => {
+      this.topologyRenderer.setScope('all');
+      this.updateTopologyToolbarUI();
+    });
+    document.getElementById('topo-toggle-bundle')?.addEventListener('change', (e) => {
+      this.topologyRenderer.setAggregateBundles(e.target.checked);
+    });
+    document.getElementById('topo-toggle-unlinked')?.addEventListener('change', (e) => {
+      this.topologyRenderer.setShowStandalone(e.target.checked);
+    });
+    document.getElementById('topo-zoom-out')?.addEventListener('click', () => this.topologyRenderer.stepZoom(-1));
+    document.getElementById('topo-zoom-reset')?.addEventListener('click', () => this.topologyRenderer.setZoom(1));
+    document.getElementById('topo-zoom-in')?.addEventListener('click', () => this.topologyRenderer.stepZoom(1));
+    document.getElementById('topology-scroll-area')?.addEventListener('click', (e) => {
+      if (e.target === e.currentTarget || e.target.id === 'topology-svg-stage' || e.target.id === 'topology-svg') {
+        store.clearSelection();
+      }
+    });
+  }
+
+  isModalOpen(id) {
+    const el = document.getElementById(id);
+    if (!el) return false;
+    return !el.classList.contains('hidden') || el.style.display === 'flex';
+  }
+
+  getTopOpenModalId() {
+    const order = ['print-modal', 'cli-modal', 'builder-modal', 'palette-modal', 'group-modal', 'rack-modal'];
+    return order.find(id => this.isModalOpen(id)) || null;
+  }
+
+  closeModalById(id) {
+    if (id === 'print-modal') this.printPassport?.close();
+    else if (id === 'cli-modal') this.cliEditor?.close();
+    else if (id === 'builder-modal') this.templateBuilder?.close();
+    else if (id === 'palette-modal') this.closeDevicePalette();
+    else if (id === 'group-modal') this.closeAddGroupModal();
+    else if (id === 'rack-modal') this.closeRackModal();
+  }
+
+  initKeyboardShortcuts() {
+    window.addEventListener('keydown', (e) => {
+      const target = e.target;
+      const isEditable = target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable
+      );
+
+      if (e.key === 'Escape') {
+        if (this.rackRenderer?.dragState) return;
+        if (store.cableDraft) {
+          store.cancelCableDraft();
+          return;
+        }
+        const openModalId = this.getTopOpenModalId();
+        if (openModalId) {
+          this.closeModalById(openModalId);
+          return;
+        }
+        if (store.selectedEntity) {
+          store.clearSelection();
+        }
+        return;
+      }
+
+      if (isEditable || this.getTopOpenModalId() || this.rackRenderer?.dragState) {
+        return;
+      }
+
+      const sel = store.selectedEntity;
+      if (!sel) return;
+
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (this.workspaceView !== 'rack' || store.cableDraft || sel.type !== 'device') return;
+        e.preventDefault();
+        const dir = e.key === 'ArrowUp' ? 1 : -1;
+        const moved = store.nudgeDevice(sel.id, dir);
+        if (moved) {
+          const devEl = this.rackContainer?.querySelector(`.installed-device[data-device-id="${sel.id}"]`);
+          devEl?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+        }
+        return;
+      }
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (store.cableDraft) return;
+        if (sel.type === 'cable') {
+          e.preventDefault();
+          store.removeCable(sel.id);
+        } else if (sel.type === 'device') {
+          e.preventDefault();
+          const loc = store.findDeviceLocation(sel.id);
+          const name = loc?.device?.customName || 'устройство';
+          if (confirm(`Удалить устройство "${name}" и все его соединения?`)) {
+            store.removeDevice(sel.id);
+          }
+        }
+      }
+    });
+  }
+
+  setWorkspaceView(view) {
+    const next = view === 'topology' ? 'topology' : 'rack';
+    this.workspaceView = next;
+    this.updateWorkspaceViewUI();
+
+    if (next === 'topology') {
+      this.cableRenderer?.hideTooltip();
+      this.topologyRenderer.render();
+      this.updateTopologyToolbarUI();
+    } else {
+      this.rackRenderer.render();
+      this.syncRackZoomSizer();
+      this.cableRenderer.render();
+    }
+  }
+
+  updateWorkspaceViewUI() {
+    const btnRack = document.getElementById('btn-view-rack');
+    const btnTopo = document.getElementById('btn-view-topology');
+    const routingCtrls = document.getElementById('rack-routing-controls');
+    const zoomDiv = document.getElementById('rack-zoom-divider');
+    const zoomCtrls = document.getElementById('rack-zoom-controls');
+
+    const isTopo = this.workspaceView === 'topology';
+
+    if (this.rackViewport) {
+      this.rackViewport.classList.toggle('hidden', isTopo);
+    }
+    if (this.topologyViewport) {
+      this.topologyViewport.classList.toggle('hidden', !isTopo);
+      this.topologyViewport.classList.toggle('flex', isTopo);
+    }
+
+    if (btnRack && btnTopo) {
+      btnRack.className = `px-2.5 py-0.5 rounded-md text-[11px] font-medium transition ${!isTopo ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-slate-200'}`;
+      btnTopo.className = `px-2.5 py-0.5 rounded-md text-[11px] font-medium transition ${isTopo ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-slate-200'}`;
+    }
+
+    routingCtrls?.classList.toggle('hidden', isTopo);
+    zoomDiv?.classList.toggle('hidden', isTopo);
+    zoomCtrls?.classList.toggle('hidden', isTopo);
+  }
+
+  updateTopologyToolbarUI() {
+    const btnActive = document.getElementById('topo-scope-active');
+    const btnAll = document.getElementById('topo-scope-all');
+    const isAll = this.topologyRenderer.scope === 'all';
+    if (btnActive && btnAll) {
+      btnActive.className = `px-2.5 py-1 rounded-md text-[11px] font-medium transition ${!isAll ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-slate-200'}`;
+      btnAll.className = `px-2.5 py-1 rounded-md text-[11px] font-medium transition ${isAll ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-slate-200'}`;
+    }
+  }
+
+  withRackRenderedForSnapshot(callback) {
+    if (this.workspaceView !== 'topology' || !this.rackViewport) {
+      this.rackRenderer.render();
+      this.cableRenderer.render();
+      return callback();
+    }
+    const prevVis = this.rackViewport.style.visibility;
+    const prevPos = this.rackViewport.style.position;
+    this.rackViewport.style.visibility = 'hidden';
+    this.rackViewport.style.position = 'fixed';
+    this.rackViewport.classList.remove('hidden');
+    this.rackRenderer.render();
+    this.cableRenderer.render();
+    try {
+      return callback();
+    } finally {
+      this.rackViewport.classList.add('hidden');
+      this.rackViewport.style.visibility = prevVis;
+      this.rackViewport.style.position = prevPos;
+    }
+  }
+
+  renderCableDraftBanner() {
+    const banner = document.getElementById('cable-draft-banner');
+    if (!banner) return;
+
+    const draft = store.cableDraft;
+    if (!draft) {
+      banner.classList.add('hidden');
+      banner.innerHTML = '';
+      return;
+    }
+
+    const srcLoc = store.findDeviceLocation(draft.deviceId);
+    const srcPort = getPortDisplayName(srcLoc?.template, draft.portId) || draft.portId;
+    const srcRack = srcLoc?.rack || store.getActiveRack();
+    const otherRacks = store.getRacks().filter(r => r.id !== store.state.activeRackId);
+
+    banner.innerHTML = `
+      <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shrink-0"></span>
+      <span class="text-slate-200">
+        Подключение от <b class="text-cyan-300">[${srcRack?.name || 'Стойка'}] ${srcLoc?.device?.customName || draft.deviceId} : ${srcPort}</b> — выберите целевой порт
+      </span>
+      ${otherRacks.length > 0 ? `
+        <div class="flex items-center gap-1 border-l border-slate-700 pl-2">
+          <span class="text-slate-400 text-[11px]">В другую стойку:</span>
+          ${otherRacks.map(r => `
+            <button type="button" class="px-2 py-0.5 rounded bg-indigo-950 hover:bg-indigo-900 text-indigo-200 border border-indigo-700/80 text-[11px] font-medium transition"
+                    onclick="window.store.setActiveRack('${r.id}')">
+              ⇄ ${r.name}
+            </button>
+          `).join('')}
+        </div>
+      ` : ''}
+      <button type="button" class="ml-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] transition"
+              onclick="window.store.cancelCableDraft()">
+        Отмена (Esc)
+      </button>
+    `;
+    banner.classList.remove('hidden');
   }
 
   subscribeState() {
     store.subscribe((event, payload) => {
+      if (event === 'cable_draft_started' || event === 'cable_draft_cancelled' || event === 'cable_draft_finished') {
+        this.renderCableDraftBanner();
+        this.rackRenderer.updateDraftPortHighlight();
+        this.cableRenderer.renderDraft();
+        return;
+      }
+
       if (event === 'rack_changed' || event === 'rack_added' || event === 'rack_deleted' || event === 'rack_updated' || event === 'state_imported' || event === 'state_reset' || event === 'remote_state_updated') {
         this.updateRackSelector();
         this.renderWorkplaceFilterBadges();
         this.rackRenderer.render();
         this.syncRackZoomSizer();
         this.cableRenderer.render();
+        this.renderCableDraftBanner();
+        if (this.workspaceView === 'topology') this.topologyRenderer.render();
       } else if (event === 'sync_status_changed') {
         this.updateSyncBadge(payload);
       } else if (event === 'group_filter_changed' || event === 'filter_settings_changed') {
@@ -294,13 +549,19 @@ class App {
         this.renderWorkplaceFilterBadges();
         this.rackRenderer.render();
         this.cableRenderer.render();
+        if (event === 'filter_settings_changed' && store.selectedEntity?.type === 'cable') {
+          this.renderDetailsDrawer();
+        }
+        if (this.workspaceView === 'topology') this.topologyRenderer.render();
       } else if (event === 'selection_changed') {
         this.renderDetailsDrawer();
         this.cableRenderer.render();
+        if (this.workspaceView === 'topology') this.topologyRenderer.render();
       } else if (event.startsWith('cable_') || event.startsWith('device_')) {
         this.renderWorkplaceFilterBadges();
         this.rackRenderer.render();
         this.cableRenderer.render();
+        if (this.workspaceView === 'topology') this.topologyRenderer.render();
         // Do not re-render drawer on update to prevent stealing input focus
         if (event !== 'device_updated' && event !== 'cable_updated') {
           this.renderDetailsDrawer();
@@ -309,11 +570,13 @@ class App {
         this.renderWorkplaceFilterBadges();
         this.renderGroupModalList();
         this.cableRenderer.render();
+        if (this.workspaceView === 'topology') this.topologyRenderer.render();
       } else if (event.startsWith('template_')) {
         if (event === 'template_updated') {
           this.rackRenderer.render();
           this.cableRenderer.render();
           this.renderDetailsDrawer();
+          if (this.workspaceView === 'topology') this.topologyRenderer.render();
         }
         const pModal = document.getElementById('palette-modal');
         if (pModal && (!pModal.classList.contains('hidden') || pModal.style.display === 'flex')) {
@@ -694,14 +957,23 @@ class App {
     const listContainer = document.getElementById('palette-devices-list');
     if (!modal || !listContainer) return;
 
-    const templates = store.getTemplates();
+    const templates = [...store.getTemplates()].sort((a, b) => {
+      const aEltex = String(a.vendor || '').toLowerCase().includes('eltex') ? 0 : 1;
+      const bEltex = String(b.vendor || '').toLowerCase().includes('eltex') ? 0 : 1;
+      return aEltex - bEltex;
+    });
     const rack = store.getActiveRack();
 
-    listContainer.innerHTML = templates.map(tpl => `
-      <div class="bg-slate-800/90 border border-slate-700 hover:border-cyan-500/60 rounded-xl p-3 flex flex-col justify-between transition-all group">
+    listContainer.innerHTML = templates.map(tpl => {
+      const isEltex = String(tpl.vendor || '').toLowerCase().includes('eltex');
+      return `
+      <div class="bg-slate-800/90 border ${isEltex ? 'border-sky-600/60' : 'border-slate-700'} hover:border-cyan-500/60 rounded-xl p-3 flex flex-col justify-between transition-all group">
         <div>
           <div class="flex items-center justify-between mb-1.5">
-            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 text-cyan-300 border border-cyan-900/50">${tpl.uHeight}U • ${tpl.category.toUpperCase()}</span>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 text-cyan-300 border border-cyan-900/50">${tpl.uHeight}U • ${tpl.category.toUpperCase()}</span>
+              ${isEltex ? '<span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-700/70">★ Eltex</span>' : ''}
+            </div>
             <span class="text-[11px] text-slate-400">${tpl.powerW ? `${tpl.powerW} Вт` : 'Пассивный'}</span>
           </div>
           <h4 class="font-bold text-sm text-slate-100 group-hover:text-cyan-300 transition">${tpl.name}</h4>
@@ -730,7 +1002,8 @@ class App {
           </div>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
 
     window.installTemplateFromPalette = (tplId) => {
       let targetUnit = this.targetPaletteU;
@@ -852,22 +1125,45 @@ class App {
     drawer.classList.remove('translate-x-full');
 
     if (sel.type === 'device') {
-      const rack = store.getActiveRack();
-      const dev = rack?.installedDevices.find(d => d.id === sel.id);
-      if (!dev) return;
-      const tpl = store.getTemplate(dev.templateId);
+      const loc = store.findDeviceLocation(sel.id);
+      const rack = loc?.rack || store.getActiveRack();
+      const dev = loc?.device || rack?.installedDevices.find(d => d.id === sel.id);
+      if (!dev || !rack) return;
+      const tpl = loc?.template || store.getTemplate(dev.templateId);
+      const isInOtherRack = rack.id !== store.getActiveRack()?.id;
+      const canMoveUp = store.findNearestFreeSlot(dev.id, 1) !== null;
+      const canMoveDown = store.findNearestFreeSlot(dev.id, -1) !== null;
 
       const devCables = store.state.cables.filter(c => c.from.deviceId === dev.id || c.to.deviceId === dev.id);
 
       content.innerHTML = `
         <div class="space-y-4">
           <div class="border-b border-slate-800 pb-3">
-            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">U${dev.uPosition} • ${tpl?.uHeight || 1}U</span>
-            <h3 class="text-base font-bold text-slate-100 mt-1">${dev.customName}</h3>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">U${dev.uPosition} • ${tpl?.uHeight || 1}U</span>
+                ${isInOtherRack ? `<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-700">${rack.name}</span>` : ''}
+              </div>
+              <div class="flex items-center gap-1" title="Переместить устройство (клавиши ↑ / ↓)">
+                <button id="drawer-btn-move-up" type="button" ${canMoveUp ? '' : 'disabled'}
+                        class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-mono disabled:opacity-35 disabled:pointer-events-none transition"
+                        onclick="window.store.nudgeDevice('${dev.id}', 1)">↑</button>
+                <button id="drawer-btn-move-down" type="button" ${canMoveDown ? '' : 'disabled'}
+                        class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-mono disabled:opacity-35 disabled:pointer-events-none transition"
+                        onclick="window.store.nudgeDevice('${dev.id}', -1)">↓</button>
+              </div>
+            </div>
+            <h3 class="text-base font-bold text-slate-100 mt-1.5">${dev.customName}</h3>
             <p class="text-xs text-slate-400">${tpl?.vendor || 'Vendor'} • ${tpl?.category || 'Device'}</p>
           </div>
 
-          <div class="flex gap-2">
+          <div class="flex gap-2 flex-wrap">
+            ${isInOtherRack ? `
+              <button class="flex-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition"
+                      onclick="window.store.setActiveRack('${rack.id}')">
+                Открыть стойку ➔
+              </button>
+            ` : ''}
             ${tpl?.category === 'switch' || dev.cliConfig ? `
               <button class="flex-1 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5"
                       onclick="window.openDeviceCli('${dev.id}')">
@@ -875,7 +1171,7 @@ class App {
               </button>
             ` : ''}
             <button class="px-3 py-2 bg-red-950 hover:bg-red-900 text-red-300 border border-red-800 rounded-lg text-xs transition"
-                    title="Удалить из стойки" onclick="store.removeDevice('${dev.id}')">
+                    title="Удалить из стойки (Delete)" onclick="store.removeDevice('${dev.id}')">
               Удалить
             </button>
           </div>
@@ -903,17 +1199,26 @@ class App {
               ${devCables.map(c => {
                 const grp = store.getGroup(c.groupId);
                 const isFrom = c.from.deviceId === dev.id;
-                const myPort = isFrom ? c.from.portId : c.to.portId;
+                const myPortId = isFrom ? c.from.portId : c.to.portId;
                 const remoteEnd = isFrom ? c.to : c.from;
-                const remoteDev = rack.installedDevices.find(d => d.id === remoteEnd.deviceId);
+                const remoteLoc = store.findDeviceLocation(remoteEnd.deviceId);
+                const interRack = store.isInterRackCable(c);
+                const myPortName = getPortDisplayName(tpl, myPortId) || myPortId;
+                const remotePortName = getPortDisplayName(remoteLoc?.template, remoteEnd.portId) || remoteEnd.portId;
 
                 return `
-                  <div class="bg-slate-900/90 border border-slate-800 p-2 rounded text-xs flex items-center justify-between">
-                    <div>
-                      <div class="font-mono text-cyan-300 text-[11px]">Порт ${myPort} ➔ ${remoteDev?.customName}:${remoteEnd.portId}</div>
-                      ${grp ? `<span class="inline-block text-[10px] mt-0.5" style="color:${grp.color}">● ${grp.name}</span>` : '<span class="text-[10px] text-slate-500">Без группы</span>'}
-                    </div>
-                    <button class="text-red-400 hover:text-red-300 text-xs px-1.5 py-0.5 bg-red-950/60 rounded"
+                  <div class="bg-slate-900/90 border ${interRack ? 'border-indigo-700/70' : 'border-slate-800'} p-2 rounded text-xs flex items-center justify-between gap-2">
+                    <button type="button" class="text-left flex-1 min-w-0 hover:brightness-125 transition"
+                            onclick="window.store.setSelection({ type: 'cable', id: '${c.id}' })">
+                      <div class="font-mono text-cyan-300 text-[11px] truncate">
+                        ${myPortName} ➔ ${interRack && remoteLoc ? `[${remoteLoc.rack.name}] ` : ''}${remoteLoc?.device?.customName || 'Dev'}:${remotePortName}
+                      </div>
+                      <div class="flex items-center gap-2 mt-0.5">
+                        ${grp ? `<span class="inline-block text-[10px]" style="color:${grp.color}">● ${grp.name}</span>` : '<span class="text-[10px] text-slate-500">Без группы</span>'}
+                        <span class="text-[10px] font-mono text-slate-500">${c.lengthM}м</span>
+                      </div>
+                    </button>
+                    <button class="text-red-400 hover:text-red-300 text-xs px-1.5 py-0.5 bg-red-950/60 rounded shrink-0"
                             onclick="store.removeCable('${c.id}')">✕</button>
                   </div>
                 `;
@@ -938,19 +1243,36 @@ class App {
       const cable = store.state.cables.find(c => c.id === sel.id);
       if (!cable) return;
 
-      const rack = store.getActiveRack();
-      const devFrom = rack?.installedDevices.find(d => d.id === cable.from.deviceId);
-      const devTo = rack?.installedDevices.find(d => d.id === cable.to.deviceId);
-      const groups = store.getGroups();
+      const activeRack = store.getActiveRack();
+      const fromLoc = store.findDeviceLocation(cable.from.deviceId);
+      const toLoc = store.findDeviceLocation(cable.to.deviceId);
+      const interRack = store.isInterRackCable(cable);
+      const fromPortName = getPortDisplayName(fromLoc?.template, cable.from.portId) || cable.from.portId;
+      const toPortName = getPortDisplayName(toLoc?.template, cable.to.portId) || cable.to.portId;
+      const remoteLoc = fromLoc?.rack?.id === activeRack?.id ? toLoc : fromLoc;
+      const groups = store.getGroupsForCable(cable);
+      const estimate = store.getCableLengthEstimate(cable);
+      const isLengthAuto = cable.lengthAuto === true && !interRack;
 
       content.innerHTML = `
         <div class="space-y-4">
           <div class="border-b border-slate-800 pb-3">
-            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-950 text-blue-400 border border-blue-800">Патч-корд</span>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-950 text-blue-400 border border-blue-800">Патч-корд</span>
+              ${interRack ? '<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-700">Межстоечный</span>' : ''}
+            </div>
             <h3 class="text-base font-bold text-slate-100 mt-1">Параметры соединения</h3>
-            <p class="text-xs font-mono text-cyan-300 mt-1">
-              ${devFrom?.customName}:${cable.from.portId} ⇄ ${devTo?.customName}:${cable.to.portId}
+            <p class="text-xs font-mono text-cyan-300 mt-1 leading-relaxed">
+              ${interRack && fromLoc ? `<span class="text-indigo-300">[${fromLoc.rack.name}]</span> ` : ''}${fromLoc?.device?.customName || 'Dev'}:${fromPortName}
+              <br>⇄
+              ${interRack && toLoc ? `<span class="text-indigo-300">[${toLoc.rack.name}]</span> ` : ''}${toLoc?.device?.customName || 'Dev'}:${toPortName}
             </p>
+            ${interRack && remoteLoc?.rack ? `
+              <button type="button" class="mt-2 px-2.5 py-1 bg-indigo-950 hover:bg-indigo-900 text-indigo-200 border border-indigo-700/80 rounded-lg text-[11px] font-medium transition"
+                      onclick="window.store.setActiveRack('${remoteLoc.rack.id}'); window.store.setSelection({ type: 'cable', id: '${cable.id}' });">
+                Перейти к ${remoteLoc.rack.name} ➔
+              </button>
+            ` : ''}
           </div>
 
           <div class="space-y-3 bg-slate-800/60 p-3 rounded-lg border border-slate-700/80 text-xs">
@@ -960,7 +1282,7 @@ class App {
                 <option value="">(Без группы / Инфраструктура)</option>
                 ${groups.map(g => `
                   <option value="${g.id}" ${g.id === cable.groupId ? 'selected' : ''}>
-                    ${g.name} (VLAN ${g.vlan})
+                    ${g.name} (VLAN ${g.vlan})${interRack && g.rackName ? ` [${g.rackName}]` : ''}
                   </option>
                 `).join('')}
               </select>
@@ -968,7 +1290,7 @@ class App {
 
             <div>
               <label class="block text-slate-400 text-[11px] mb-1">Метка / Назначение</label>
-              <input type="text" id="drawer-cable-label" value="${cable.label || ''}" placeholder="Например: ПК Бухгалтера" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs">
+              <input type="text" id="drawer-cable-label" value="${cable.label || ''}" placeholder="Например: Uplink 10G Eltex" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs">
             </div>
 
             <div class="grid grid-cols-2 gap-2">
@@ -977,9 +1299,23 @@ class App {
                 <input type="color" id="drawer-cable-color" value="${cable.color || '#3b82f6'}" class="w-full h-8 bg-slate-900 border border-slate-700 rounded cursor-pointer p-0.5">
               </div>
               <div>
-                <label class="block text-slate-400 text-[11px] mb-1">Длина (метры)</label>
-                <input type="number" step="0.25" id="drawer-cable-len" value="${cable.lengthM || 0.5}" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs">
+                <div class="flex items-center justify-between mb-1">
+                  <label class="text-slate-400 text-[11px]">Длина (м)</label>
+                  ${!interRack ? `
+                    <label class="flex items-center gap-1 text-[10px] text-cyan-300 cursor-pointer" title="Автоматический геометрический подбор длины">
+                      <input type="checkbox" id="drawer-cable-length-auto" ${isLengthAuto ? 'checked' : ''} class="rounded border-slate-700 bg-slate-900 text-cyan-500">
+                      <span>Авто</span>
+                    </label>
+                  ` : ''}
+                </div>
+                <input type="number" step="0.25" min="0.25" id="drawer-cable-len" value="${cable.lengthM || 0.5}" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs">
               </div>
+            </div>
+
+            <div id="drawer-cable-len-hint" class="text-[10px] font-mono text-slate-400 bg-slate-900/70 px-2 py-1 rounded border border-slate-800">
+              ${interRack
+                ? 'Межстоечная трасса — задаётся вручную'
+                : `Расчёт (${store.getCableRoutingMode() === 'channels' ? 'Каналы' : 'Дуги'}): ~${estimate.rawMeters} м → стандарт ${estimate.lengthM} м`}
             </div>
 
             <div>
@@ -1021,13 +1357,63 @@ class App {
         store.updateCable(cable.id, { color: e.target.value });
       });
 
+      content.querySelector('#drawer-cable-length-auto')?.addEventListener('change', (e) => {
+        const updated = store.setCableLengthAuto(cable.id, e.target.checked);
+        const lenInput = content.querySelector('#drawer-cable-len');
+        if (lenInput && updated) {
+          lenInput.value = updated.lengthM;
+        }
+      });
+
       content.querySelector('#drawer-cable-len')?.addEventListener('input', (e) => {
-        store.updateCable(cable.id, { lengthM: parseFloat(e.target.value) || 0.5 });
+        const autoChk = content.querySelector('#drawer-cable-length-auto');
+        if (autoChk) autoChk.checked = false;
+        store.updateCable(cable.id, {
+          lengthM: parseFloat(e.target.value) || 0.5,
+          lengthAuto: false
+        });
       });
 
       content.querySelector('#drawer-cable-type')?.addEventListener('change', (e) => {
         store.updateCable(cable.id, { type: e.target.value });
       });
+    } else if (sel.type === 'cable_bundle') {
+      const bundleCables = (sel.cableIds || [])
+        .map(cid => store.state.cables.find(c => c.id === cid))
+        .filter(Boolean);
+      const grp = sel.groupId ? store.getGroup(sel.groupId) : null;
+
+      content.innerHTML = `
+        <div class="space-y-4">
+          <div class="border-b border-slate-800 pb-3">
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">Пучок кабелей • ×${bundleCables.length}</span>
+            <h3 class="text-base font-bold text-slate-100 mt-1">${sel.fromName} ⇄ ${sel.toName}</h3>
+            ${grp ? `<p class="text-xs mt-1" style="color:${grp.color}">● ${grp.name} (VLAN ${grp.vlan})</p>` : '<p class="text-xs text-slate-400 mt-1">Инфраструктурные / без группы</p>'}
+          </div>
+
+          <div class="space-y-1.5 max-h-[60vh] overflow-y-auto pr-1">
+            ${bundleCables.map(c => {
+              const fromLoc = store.findDeviceLocation(c.from.deviceId);
+              const toLoc = store.findDeviceLocation(c.to.deviceId);
+              const p1 = getPortDisplayName(fromLoc?.template, c.from.portId) || c.from.portId;
+              const p2 = getPortDisplayName(toLoc?.template, c.to.portId) || c.to.portId;
+              return `
+                <div class="bg-slate-900/90 border border-slate-800 p-2 rounded text-xs flex items-center justify-between gap-2">
+                  <button type="button" class="text-left flex-1 min-w-0 hover:brightness-125 transition"
+                          onclick="window.store.setSelection({ type: 'cable', id: '${c.id}' })">
+                    <div class="font-mono text-cyan-300 text-[11px] truncate">
+                      ${fromLoc?.device?.customName}:${p1} ➔ ${toLoc?.device?.customName}:${p2}
+                    </div>
+                    <div class="text-[10px] text-slate-400 font-mono mt-0.5">${c.type} • ${c.lengthM}м${c.label ? ` • ${c.label}` : ''}</div>
+                  </button>
+                  <button class="text-red-400 hover:text-red-300 text-xs px-1.5 py-0.5 bg-red-950/60 rounded shrink-0"
+                          onclick="store.removeCable('${c.id}')">✕</button>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
     }
   }
 }

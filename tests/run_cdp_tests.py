@@ -5,6 +5,7 @@ Tests all UI buttons, modals, state interactions, rendering, and consoles.
 """
 
 import asyncio
+import base64
 import json
 import os
 import subprocess
@@ -585,7 +586,7 @@ async def run_test_suite():
             await asyncio.sleep(0.15)
             selected_cable_id = await client.eval("window.store.selectedEntity?.id || null")
             cable_channel_selectable = (hover_id == cable_connected and selected_cable_id == cable_connected)
-        record("Hover and click along cable channel hits cable cleanly", cable_channel_selectable)
+        record("Hover and click along cable channel hits cable cleanly", cable_channel_selectable, f"pt={cable_pt}, hover={hover_id if cable_pt else None}, sel={selected_cable_id if cable_pt else None}")
         # -------------------------------------------------------------
         # TEST 6: Switch CLI Terminal Modal
         # -------------------------------------------------------------
@@ -1104,6 +1105,492 @@ async def run_test_suite():
                 window.store.clearSelection();
             }})()
         """)
+
+        # -------------------------------------------------------------
+        # TEST 11: Auto Patch-Cord Length Calculator (Block B.1)
+        # -------------------------------------------------------------
+        print("\n--- Test Suite 11: Auto Patch-Cord Length Calculator ---")
+        await client.eval("""
+            (() => {
+                const r1 = window.store.getRacks()[0];
+                const keepIds = new Set(['dev-gateway', 'dev-patch', 'dev-switch', 'dev-server', 'dev-pdu']);
+                r1.installedDevices
+                    .filter(d => !keepIds.has(d.id))
+                    .map(d => d.id)
+                    .forEach(id => window.store.removeDevice(id));
+                window.store.setActiveRack(r1.id);
+                window.store.setActiveGroupFilter('ALL');
+                window.store.setCableRoutingMode('channels');
+                window.store.clearSelection();
+            })()
+        """)
+        await asyncio.sleep(0.2)
+
+        auto_len_setup = await client.eval("""
+            (() => {
+                const sw = window.store.installDevice('tpl-eltex-mes2324p', 15, 'Eltex-Core-Access');
+                const pp = window.store.installDevice('tpl-patch-24p', 14, 'Patch-24P-Test');
+                if (!sw || !pp) return null;
+                const el = document.querySelector(`.port-slot[data-device-id="${sw.id}"][data-port-id="p-1"] .port-jack`);
+                if (!el) return null;
+                el.scrollIntoView({ block: 'center', behavior: 'instant' });
+                const r = el.getBoundingClientRect();
+                return {
+                    swId: sw.id,
+                    ppId: pp.id,
+                    pSw1: { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+                };
+            })()
+        """)
+
+        auto_len_ok = False
+        recalc_on_mode_ok = False
+        recalc_on_move_ok = False
+        manual_override_ok = False
+
+        if auto_len_setup and auto_len_setup.get("pSw1"):
+            p1 = auto_len_setup["pSw1"]
+            await client.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": p1["x"], "y": p1["y"], "button": "left", "clickCount": 1})
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": p1["x"], "y": p1["y"], "button": "left", "clickCount": 1})
+            await asyncio.sleep(0.15)
+            banner_visible = await client.eval("!document.getElementById('cable-draft-banner').classList.contains('hidden')")
+            p2 = await client.eval(f"""
+                (() => {{
+                    const el = document.querySelector(`.port-slot[data-device-id="{auto_len_setup['ppId']}"][data-port-id="p-1"] .port-jack`);
+                    if (!el) return null;
+                    el.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+                    const r = el.getBoundingClientRect();
+                    return {{ x: r.left + r.width / 2, y: r.top + r.height / 2 }};
+                }})()
+            """)
+            if p2:
+                await client.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": p2["x"], "y": p2["y"], "button": "left", "clickCount": 1})
+                await client.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": p2["x"], "y": p2["y"], "button": "left", "clickCount": 1})
+                await asyncio.sleep(0.25)
+
+            cable_res = await client.eval(f"""
+                (() => {{
+                    const c = window.store.getCableByPort('{auto_len_setup["swId"]}', 'p-1');
+                    return c ? {{ id: c.id, lengthM: c.lengthM, lengthAuto: c.lengthAuto }} : null;
+                }})()
+            """)
+            std_sizes = [0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
+            auto_len_ok = bool(
+                banner_visible and
+                isinstance(cable_res, dict) and
+                cable_res.get("lengthAuto") is True and
+                cable_res.get("lengthM") in std_sizes
+            )
+
+            # Move patch panel down from U14 -> U2 (across the rack) and check length auto-increases
+            len_near = cable_res.get("lengthM", 0) if isinstance(cable_res, dict) else 0
+            await client.eval(f"window.store.moveDevice('{auto_len_setup['ppId']}', 2)")
+            await asyncio.sleep(0.2)
+            len_far_channels = await client.eval(f"window.store.getCableByPort('{auto_len_setup['swId']}', 'p-1')?.lengthM ?? null")
+            recalc_on_move_ok = isinstance(len_far_channels, (int, float)) and len_far_channels > len_near
+
+            # Toggle routing mode channels <-> arcs and check auto-length recalculation
+            await client.eval("document.getElementById('btn-route-arcs').click()")
+            await asyncio.sleep(0.15)
+            len_far_arcs = await client.eval(f"window.store.getCableByPort('{auto_len_setup['swId']}', 'p-1')?.lengthM ?? null")
+            await client.eval("document.getElementById('btn-route-channels').click()")
+            await asyncio.sleep(0.15)
+            recalc_on_mode_ok = (
+                isinstance(len_far_arcs, (int, float)) and
+                isinstance(len_far_channels, (int, float)) and
+                len_far_arcs <= len_far_channels
+            )
+
+            # Open drawer, edit manual length -> unchecks lengthAuto; re-check Auto -> snaps back
+            if cable_res:
+                await client.eval(f"window.store.setSelection({{ type: 'cable', id: '{cable_res['id']}' }})")
+                await asyncio.sleep(0.2)
+                manual_override_ok = await client.eval(f"""
+                    (() => {{
+                        const lenInput = document.getElementById('drawer-cable-len');
+                        const autoChk = document.getElementById('drawer-cable-length-auto');
+                        if (!lenInput || !autoChk || !autoChk.checked) return false;
+                        lenInput.value = '4.25';
+                        lenInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        const afterManual = window.store.state.cables.find(c => c.id === '{cable_res['id']}');
+                        if (!afterManual || afterManual.lengthAuto !== false || afterManual.lengthM !== 4.25) return false;
+                        autoChk.checked = true;
+                        autoChk.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        const afterReAuto = window.store.state.cables.find(c => c.id === '{cable_res['id']}');
+                        return Boolean(afterReAuto && afterReAuto.lengthAuto === true && afterReAuto.lengthM !== 4.25);
+                    }})()
+                """)
+
+        record("Auto patch-cord length calculates standard size via port clicks", auto_len_ok)
+        record("Moving device recalculates auto cable length dynamically", recalc_on_move_ok)
+        record("Switching Channels/Arcs recalculates auto cable length", recalc_on_mode_ok)
+        record("Drawer manual length disables Auto and re-checking restores it", bool(manual_override_ok))
+
+        # -------------------------------------------------------------
+        # TEST 12: Keyboard Accelerators (Block D.3)
+        # -------------------------------------------------------------
+        print("\n--- Test Suite 12: Keyboard Navigation & Shortcuts ---")
+        async def send_key(key_name, vk_code):
+            await client.send("Input.dispatchKeyEvent", {"type": "rawKeyDown", "key": key_name, "code": key_name, "windowsVirtualKeyCode": vk_code})
+            await client.send("Input.dispatchKeyEvent", {"type": "keyUp", "key": key_name, "code": key_name, "windowsVirtualKeyCode": vk_code})
+            await asyncio.sleep(0.15)
+
+        kbd_results = {"move_up": False, "skip_obstacle": False, "input_guard": False, "esc_draft": False, "del_cable": False}
+
+        if auto_len_setup:
+            # Select patch panel at U2 (below obstacle? place an obstacle at U13 and test skipping around U12 -> U14!)
+            await client.eval(f"""
+                (() => {{
+                    window.store.moveDevice('{auto_len_setup["ppId"]}', 12);
+                    // Eltex switch is at U15; add another switch at U13 so ArrowUp from U12 skips U13 -> U14!
+                    const obs = window.store.installDevice('tpl-eltex-mes2324', 13, 'Eltex-Obstacle');
+                    window._obsDevId = obs ? obs.id : null;
+                    window.store.setSelection({{ type: 'device', id: '{auto_len_setup["ppId"]}' }});
+                    document.body.focus();
+                }})()
+            """)
+            await asyncio.sleep(0.2)
+
+            await send_key("ArrowUp", 38)
+            u_after_skip = await client.eval(f"window.store.findDeviceLocation('{auto_len_setup['ppId']}')?.device.uPosition")
+            kbd_results["skip_obstacle"] = (u_after_skip == 14)
+
+            await send_key("ArrowDown", 40)
+            u_after_down = await client.eval(f"window.store.findDeviceLocation('{auto_len_setup['ppId']}')?.device.uPosition")
+            kbd_results["move_up"] = (u_after_down == 12)
+
+            # Focus input inside drawer and verify ArrowUp does not move device
+            await client.eval("document.getElementById('drawer-dev-name')?.focus()")
+            await send_key("ArrowUp", 38)
+            u_guarded = await client.eval(f"window.store.findDeviceLocation('{auto_len_setup['ppId']}')?.device.uPosition")
+            kbd_results["input_guard"] = (u_guarded == 12)
+
+            # Test Escape cancels active cableDraft
+            await client.eval(f"""
+                (() => {{
+                    document.activeElement?.blur?.();
+                    window.store.startCableDraft('{auto_len_setup["swId"]}', 'p-3', 200, 200);
+                }})()
+            """)
+            await asyncio.sleep(0.1)
+            await send_key("Escape", 27)
+            draft_cleared = await client.eval("window.store.cableDraft === null && document.getElementById('cable-draft-banner').classList.contains('hidden')")
+            kbd_results["esc_draft"] = bool(draft_cleared)
+
+            # Test Delete key deletes selected cable
+            del_cable_id = await client.eval(f"window.store.getCableByPort('{auto_len_setup['swId']}', 'p-1')?.id")
+            if del_cable_id:
+                await client.eval(f"window.store.setSelection({{ type: 'cable', id: '{del_cable_id}' }})")
+                await asyncio.sleep(0.15)
+                await send_key("Delete", 46)
+                still_exists = await client.eval(f"window.store.state.cables.some(c => c.id === '{del_cable_id}')")
+                kbd_results["del_cable"] = (still_exists is False)
+
+        record("Keyboard ArrowUp skips occupied unit slot cleanly (U12 -> U14)", kbd_results["skip_obstacle"])
+        record("Keyboard ArrowDown moves device down across obstacle (U14 -> U12)", kbd_results["move_up"])
+        record("Keyboard shortcuts are suppressed when typing in drawer inputs", kbd_results["input_guard"])
+        record("Escape key cancels active cable draft cleanly", kbd_results["esc_draft"])
+        record("Delete key removes selected cable", kbd_results["del_cable"])
+
+        # -------------------------------------------------------------
+        # TEST 13: Inter-Rack Uplinks / Cross-Rack Patching (Block F.3)
+        # -------------------------------------------------------------
+        print("\n--- Test Suite 13: Cross-Rack Patching (Inter-Rack Uplinks) ---")
+        inter_setup = await client.eval("""
+            (() => {
+                const r1 = window.store.getRacks()[0];
+                const r2 = window.store.addRack('Стойка №2 (Кроссовая Этаж 2)', 24);
+                const swR2 = window.store.installDevice('tpl-eltex-mes2324', 24, 'Eltex-Access-F2');
+                const ppR2 = window.store.installDevice('tpl-patch-24p', 22, 'Patch-F2');
+                window.store.setActiveRack(r1.id);
+                const eltexR1 = r1.installedDevices.find(d => d.templateId === 'tpl-eltex-mes2324p');
+                return {
+                    r1Id: r1.id,
+                    r2Id: r2.id,
+                    swR1Id: eltexR1 ? eltexR1.id : null,
+                    swR2Id: swR2 ? swR2.id : null,
+                    ppR2Id: ppR2 ? ppR2.id : null
+                };
+            })()
+        """)
+        await asyncio.sleep(0.3)
+
+        inter_draft_ok = False
+        inter_create_ok = False
+        inter_badge_jump_ok = False
+
+        if inter_setup and inter_setup["swR1Id"] and inter_setup["swR2Id"]:
+            # Start draft on Eltex MES2324P XG1 in Rack 1
+            xg1_r1 = await client.eval(f"""
+                (() => {{
+                    const el = document.querySelector(`.port-slot[data-device-id="{inter_setup['swR1Id']}"][data-port-id="xg-1"] .port-jack`);
+                    if (!el) return null;
+                    el.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+                    const r = el.getBoundingClientRect();
+                    return {{ x: r.left + r.width / 2, y: r.top + r.height / 2 }};
+                }})()
+            """)
+            if xg1_r1:
+                await client.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": xg1_r1["x"], "y": xg1_r1["y"], "button": "left", "clickCount": 1})
+                await client.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": xg1_r1["x"], "y": xg1_r1["y"], "button": "left", "clickCount": 1})
+                await asyncio.sleep(0.2)
+
+                # Click rack switch button in #cable-draft-banner to jump to Rack 2 while preserving draft
+                await client.eval(f"document.querySelector(`#cable-draft-banner button[onclick*=\"{inter_setup['r2Id']}\"]`)?.click()")
+                await asyncio.sleep(0.25)
+                inter_draft_ok = await client.eval(f"""
+                    window.store.getActiveRack().id === '{inter_setup["r2Id"]}' &&
+                    window.store.cableDraft !== null &&
+                    window.store.cableDraft.deviceId === '{inter_setup["swR1Id"]}'
+                """)
+
+                # Finish draft on Eltex MES2324 XG1 in Rack 2
+                xg1_r2 = await client.eval(f"""
+                    (() => {{
+                        const el = document.querySelector(`.port-slot[data-device-id="{inter_setup['swR2Id']}"][data-port-id="xg-1"] .port-jack`);
+                        if (!el) return null;
+                        el.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+                        const r = el.getBoundingClientRect();
+                        return {{ x: r.left + r.width / 2, y: r.top + r.height / 2 }};
+                    }})()
+                """)
+                if xg1_r2:
+                    await client.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": xg1_r2["x"], "y": xg1_r2["y"], "button": "left", "clickCount": 1})
+                    await client.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": xg1_r2["x"], "y": xg1_r2["y"], "button": "left", "clickCount": 1})
+                    await asyncio.sleep(0.3)
+
+                    inter_info = await client.eval(f"""
+                        (() => {{
+                            const c = window.store.getCableByPort('{inter_setup['swR2Id']}', 'xg-1');
+                            const badge = document.querySelector('#cables-svg .inter-rack-badge');
+                            return {{
+                                isInterRack: c ? window.store.isInterRackCable(c) : false,
+                                cableType: c?.type,
+                                lengthM: c?.lengthM,
+                                hasSvgBadge: Boolean(badge),
+                                badgeText: badge?.textContent || ''
+                            }};
+                        }})()
+                    """)
+                    inter_create_ok = bool(
+                        inter_info and
+                        inter_info["isInterRack"] and
+                        inter_info["cableType"] == "Fiber OM4" and
+                        inter_info["lengthM"] == 5 and
+                        inter_info["hasSvgBadge"]
+                    )
+
+                    # Click SVG inter-rack badge to jump to Rack 1 and open cable in Drawer
+                    await client.eval("""
+                        (() => {
+                            const badge = document.querySelector('#cables-svg .inter-rack-badge');
+                            if (badge) badge.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                        })()
+                    """)
+                    await asyncio.sleep(0.25)
+                    inter_badge_jump_ok = await client.eval(f"""
+                        window.store.getActiveRack().id === '{inter_setup["r1Id"]}' &&
+                        window.store.selectedEntity?.type === 'cable' &&
+                        !document.getElementById('details-drawer').classList.contains('translate-x-full')
+                    """)
+
+        record("Cable draft persists when switching racks via draft banner", bool(inter_draft_ok))
+        record("Cross-rack SFP+ uplink creates Fiber OM4 inter-rack cable with SVG badge", bool(inter_create_ok))
+        record("Clicking SVG inter-rack badge jumps to remote rack & opens cable inspector", bool(inter_badge_jump_ok))
+
+        # -------------------------------------------------------------
+        # TEST 14: Logical Network Topology L1/L2 (Blocks E.1, E.2, E.3)
+        # -------------------------------------------------------------
+        print("\n--- Test Suite 14: Logical Network Topology L1/L2 ---")
+        topo_prep = await client.eval(f"""
+            (() => {{
+                const r1 = window.store.getRacks()[0];
+                window.store.setActiveRack(r1.id);
+                const grp = window.store.addGroup('VLAN 50 Офис', '#22c55e', 50);
+                // Connect Eltex MES2324P to Patch-24P with 3 cables in VLAN 50 (tests bundle x3)
+                for (let p = 2; p <= 4; p++) {{
+                    window.store.addCable({{
+                        from: {{ deviceId: '{auto_len_setup["swId"]}', portId: `p-${{p}}` }},
+                        to: {{ deviceId: '{auto_len_setup["ppId"]}', portId: `p-${{p}}` }},
+                        groupId: grp.id
+                    }});
+                }}
+                // Connect 2 parallel links between Eltex-Core-Access and Eltex-Obstacle (tests LAG detection)
+                window.store.addCable({{
+                    from: {{ deviceId: '{auto_len_setup["swId"]}', portId: 'xg-2' }},
+                    to: {{ deviceId: window._obsDevId, portId: 'xg-1' }}
+                }});
+                window.store.addCable({{
+                    from: {{ deviceId: '{auto_len_setup["swId"]}', portId: 'xg-3' }},
+                    to: {{ deviceId: window._obsDevId, portId: 'xg-2' }}
+                }});
+                // Connect Core-Access to Gateway so router tier sits at top
+                window.store.addCable({{
+                    from: {{ deviceId: 'dev-gateway', portId: 'lan-2' }},
+                    to: {{ deviceId: '{auto_len_setup["swId"]}', portId: 'p-10' }},
+                    groupId: grp.id
+                }});
+                return grp.id;
+            }})()
+        """)
+        await asyncio.sleep(0.2)
+
+        # Switch UI to Topology View
+        await client.eval("document.getElementById('btn-view-topology').click()")
+        await asyncio.sleep(0.3)
+
+        topo_view_ok = await client.eval("""
+            (() => {
+                const rackHidden = document.getElementById('rack-viewport').classList.contains('hidden');
+                const topoVisible = !document.getElementById('topology-viewport').classList.contains('hidden');
+                const svg = document.getElementById('topology-svg');
+                const nodes = Array.from(document.querySelectorAll('#topology-svg .topo-node'));
+                const edges = Array.from(document.querySelectorAll('#topology-svg .topo-edge'));
+                const hasBundle3 = edges.some(e => e.textContent.includes('×3'));
+                const hasLag = edges.some(e => e.textContent.includes('(LAG)'));
+                // Verify Gateway (router) sits physically above Switch, and Switch above Patch Panel
+                const gwNode = nodes.find(n => n.textContent.includes('Gateway'));
+                const ppNode = nodes.find(n => n.textContent.includes('Patch-24P-Test'));
+                const gwY = parseFloat(gwNode?.querySelector('rect')?.getAttribute('y') || '9999');
+                const ppY = parseFloat(ppNode?.querySelector('rect')?.getAttribute('y') || '0');
+                return {
+                    ok: rackHidden && topoVisible && Boolean(svg) && hasBundle3 && hasLag && gwY < ppY,
+                    nodes: nodes.length,
+                    edges: edges.length,
+                    hasBundle3,
+                    hasLag,
+                    gwY,
+                    ppY
+                };
+            })()
+        """)
+        record("Topology View renders hierarchical router -> switch -> patch SVG with x3 bundle & LAG badge", bool(topo_view_ok and topo_view_ok["ok"]), str(topo_view_ok))
+
+        # Test All-Racks Topology Scope & Inter-Rack Edge
+        await client.eval("document.getElementById('topo-scope-all').click()")
+        await asyncio.sleep(0.25)
+        topo_all_ok = await client.eval("""
+            (() => {
+                const nodes = Array.from(document.querySelectorAll('#topology-svg .topo-node'));
+                const hasRack1 = nodes.some(n => n.textContent.includes('Eltex-Core-Access'));
+                const hasRack2 = nodes.some(n => n.textContent.includes('Eltex-Access-F2'));
+                return hasRack1 && hasRack2;
+            })()
+        """)
+        record("All-Racks topology scope combines devices across both racks", bool(topo_all_ok))
+
+        # Toggle bundle collapse OFF -> expands edges; click bundle back ON and inspect bundle in Drawer
+        edges_bundled_count = await client.eval("document.querySelectorAll('#topology-svg .topo-edge').length")
+        await client.eval("""
+            (() => {
+                const chk = document.getElementById('topo-toggle-bundle');
+                chk.checked = false;
+                chk.dispatchEvent(new Event('change', { bubbles: true }));
+            })()
+        """)
+        await asyncio.sleep(0.2)
+        edges_unbundled_count = await client.eval("document.querySelectorAll('#topology-svg .topo-edge').length")
+        await client.eval("""
+            (() => {
+                const chk = document.getElementById('topo-toggle-bundle');
+                chk.checked = true;
+                chk.dispatchEvent(new Event('change', { bubbles: true }));
+            })()
+        """)
+        await asyncio.sleep(0.2)
+
+        # Click the ×3 bundle edge to open Bundle Inspector in Drawer
+        await client.eval("""
+            (() => {
+                const edge = Array.from(document.querySelectorAll('#topology-svg .topo-edge')).find(e => e.textContent.includes('×3'));
+                edge?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            })()
+        """)
+        await asyncio.sleep(0.2)
+        bundle_drawer_ok = await client.eval("""
+            window.store.selectedEntity?.type === 'cable_bundle' &&
+            !document.getElementById('details-drawer').classList.contains('translate-x-full') &&
+            document.getElementById('details-content').textContent.includes('Пучок кабелей')
+        """)
+        record("Unbundling expands aggregated edges cleanly", edges_unbundled_count > edges_bundled_count, f"bundled={edges_bundled_count}, expanded={edges_unbundled_count}")
+        record("Clicking aggregated bundle opens Bundle Inspector in Drawer", bool(bundle_drawer_ok))
+
+        # Test group filter dims non-matching edges in Topology
+        await client.eval(f"window.store.setActiveGroupFilter('{topo_prep}')")
+        await asyncio.sleep(0.2)
+        topo_filter_ok = await client.eval("""
+            (() => {
+                const edges = Array.from(document.querySelectorAll('#topology-svg .topo-edge'));
+                const ops = edges.map(e => parseFloat(e.getAttribute('opacity') || '1'));
+                return ops.some(o => o > 0.8) && ops.some(o => o < 0.3);
+            })()
+        """)
+        await client.eval("window.store.setActiveGroupFilter('ALL')")
+        record("Workplace group filter highlights matching path and dims others in Topology", bool(topo_filter_ok))
+
+        # -------------------------------------------------------------
+        # TEST 15: Rack Passport & Print / PDF Export (Block F.1)
+        # -------------------------------------------------------------
+        print("\n--- Test Suite 15: Rack Passport & PDF Print Export ---")
+        await client.eval("document.getElementById('btn-export-pdf').click()")
+        await asyncio.sleep(0.35)
+
+        print_modal_ok = await client.eval("""
+            (() => {
+                const modal = document.getElementById('print-modal');
+                const preview = document.getElementById('print-preview-container');
+                const root = document.getElementById('print-report-root');
+                const txt = preview?.textContent || '';
+                const hasRackSvg = Boolean(preview?.querySelector('.print-rack-wrap svg .cable-group'));
+                const hasTopoSvg = Boolean(preview?.querySelector('#print-topology-svg'));
+                const hasPortName = txt.includes('XG1');
+                return {
+                    open: modal && !modal.classList.contains('hidden'),
+                    hasSummary: txt.includes('Паспорт монтажного шкафа'),
+                    hasRackSvg,
+                    hasTopoSvg,
+                    hasPortName,
+                    syncedRoot: Boolean(root && root.innerHTML.length > 500)
+                };
+            })()
+        """)
+        record("Print Passport opens while in Topology view with Rack SVG, Topology SVG & Eltex XG1 table", bool(
+            print_modal_ok and print_modal_ok["open"] and print_modal_ok["hasSummary"] and
+            print_modal_ok["hasRackSvg"] and print_modal_ok["hasTopoSvg"] and
+            print_modal_ok["hasPortName"] and print_modal_ok["syncedRoot"]
+        ), str(print_modal_ok))
+
+        # Toggle options: disable cable table & enable CLI configs
+        await client.eval("""
+            (() => {
+                const cChk = document.getElementById('print-opt-cables');
+                const cliChk = document.getElementById('print-opt-cli');
+                cChk.checked = false;
+                cChk.dispatchEvent(new Event('change', { bubbles: true }));
+                cliChk.checked = true;
+                cliChk.dispatchEvent(new Event('change', { bubbles: true }));
+            })()
+        """)
+        await asyncio.sleep(0.2)
+        print_toggle_ok = await client.eval("""
+            (() => {
+                const txt = document.getElementById('print-preview-container')?.textContent || '';
+                return !txt.includes('Журнал подключений') && txt.includes('Конфигурации CLI устройств');
+            })()
+        """)
+        record("Print Passport checkboxes dynamically show/hide Cable & CLI sections", bool(print_toggle_ok))
+
+        # Verify actual browser PDF generation via CDP Page.printToPDF
+        pdf_res = await client.send("Page.printToPDF", {"printBackground": True})
+        pdf_bytes = base64.b64decode(pdf_res.get("data", ""))
+        record("Browser generates valid non-empty PDF via @media print", pdf_bytes.startswith(b"%PDF-") and len(pdf_bytes) > 5000, f"PDF size={len(pdf_bytes)} bytes")
+
+        # Close print modal with Escape & switch back to Rack View cleanly
+        await send_key("Escape", 27)
+        print_closed = await client.eval("document.getElementById('print-modal').classList.contains('hidden')")
+        await client.eval("document.getElementById('btn-view-rack').click()")
+        await asyncio.sleep(0.2)
+        record("Escape closes Print Passport modal cleanly", bool(print_closed))
 
         # -------------------------------------------------------------
         # TEST 9: Export / Import JSON & Reset
