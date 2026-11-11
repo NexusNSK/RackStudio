@@ -54,6 +54,13 @@ class StateStore {
     DEFAULT_DEVICE_TEMPLATES.forEach(dt => {
       if (!existingIds.has(dt.id) && !knownIds.has(dt.id)) {
         targetState.templates.push(JSON.parse(JSON.stringify(dt)));
+      } else if (dt.id === 'tpl-eltex-mes2324p') {
+        const existingTpl = targetState.templates.find(t => t.id === dt.id);
+        const p1 = existingTpl?.ports?.find(p => p.id === 'p-1');
+        const xg1 = existingTpl?.ports?.find(p => p.id === 'xg-1');
+        if (p1?.x === 36.72 && p1?.y === 43.55 && xg1?.x === 81.94 && xg1?.y === 77.42) {
+          existingTpl.ports = JSON.parse(JSON.stringify(dt.ports));
+        }
       }
       if (!knownIds.has(dt.id)) {
         targetState.knownDefaultTemplateIds.push(dt.id);

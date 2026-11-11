@@ -257,13 +257,13 @@ export const DEFAULT_DEVICE_TEMPLATES = [
       customImage: 'assets/panels/mes2324p.png'
     },
     ports: createEltex24SwitchPorts({
-      colXs: [36.72, 40.13, 43.54, 46.97, 50.74, 54.15, 57.58, 61.0, 64.77, 68.18, 71.61, 75.04],
-      topY: 43.55,
-      botY: 68.55,
-      sfpXs: [81.94, 86.09, 90.24, 94.36],
-      sfpY: 77.42,
-      consoleX: 27.02,
-      consoleY: 73.79,
+      colXs: [36.62, 40.09, 43.56, 47.03, 50.84, 54.31, 57.77, 61.24, 65.05, 68.52, 71.99, 75.46],
+      topY: 42.0,
+      botY: 68.15,
+      sfpXs: [82.43, 86.62, 90.82, 95.01],
+      sfpY: 76.61,
+      consoleX: 27.1,
+      consoleY: 73.39,
       rjSpeed: '1G / PoE+'
     })
   },
