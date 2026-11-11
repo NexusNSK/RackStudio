@@ -448,10 +448,12 @@ export class RackRenderer {
     }
 
     const stackRect = stackEl.getBoundingClientRect();
-    const slotHeight = (stackRect.height / rack.uHeight) || 54;
+    const localSlotHeight = (stackEl.offsetHeight / rack.uHeight) || 54;
+    const scale = stackEl.offsetHeight ? (stackRect.height / stackEl.offsetHeight || 1) : 1;
+    const slotScreenHeight = localSlotHeight * scale;
     const projectedTopPx = (e.clientY - ds.grabOffsetY) - stackRect.top;
     const maxRowIdx = Math.max(0, rack.uHeight - ds.uHeight);
-    const rowIdx = Math.max(0, Math.min(maxRowIdx, Math.round(projectedTopPx / slotHeight)));
+    const rowIdx = Math.max(0, Math.min(maxRowIdx, Math.round(projectedTopPx / slotScreenHeight)));
     const targetTopU = rack.uHeight - rowIdx;
     const targetBaseU = targetTopU - ds.uHeight + 1;
     const canDrop = store.canMoveDevice(ds.deviceId, targetBaseU);
@@ -459,14 +461,14 @@ export class RackRenderer {
     ds.targetU = targetBaseU;
     ds.canDrop = canDrop;
 
-    const curDevHeight = ds.uHeight * slotHeight;
+    const curDevHeight = ds.uHeight * slotScreenHeight;
     const clampedTop = Math.max(stackRect.top, Math.min(stackRect.bottom - curDevHeight, e.clientY - ds.grabOffsetY));
-    const baseTopWithoutTransform = ds.deviceEl.getBoundingClientRect().top - ds.currentTranslateY;
-    const translateY = clampedTop - baseTopWithoutTransform;
+    const baseTopWithoutTransform = ds.deviceEl.getBoundingClientRect().top - ds.currentTranslateY * scale;
+    const translateY = (clampedTop - baseTopWithoutTransform) / scale;
     ds.currentTranslateY = translateY;
     ds.deviceEl.style.transform = `translateY(${translateY}px)`;
 
-    this.renderDropPreview(stackEl, rowIdx, ds.uHeight, slotHeight, targetBaseU, ds.startU, canDrop);
+    this.renderDropPreview(stackEl, rowIdx, ds.uHeight, localSlotHeight, targetBaseU, ds.startU, canDrop);
     this.cableRenderer?.render();
   }
 

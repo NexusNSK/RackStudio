@@ -108,16 +108,31 @@ export class CableRenderer {
     ro.observe(this.rackEl);
   }
 
+  getScale() {
+    if (!this.rackEl || !this.rackEl.offsetWidth) return 1;
+    const scale = this.rackEl.getBoundingClientRect().width / this.rackEl.offsetWidth;
+    return scale > 0.05 ? scale : 1;
+  }
+
+  clientToSvgPoint(clientX, clientY) {
+    const svgRect = this.svg.getBoundingClientRect();
+    const scale = this.getScale();
+    return {
+      x: (clientX - svgRect.left) / scale,
+      y: (clientY - svgRect.top) / scale
+    };
+  }
+
   findCableAtClientPoint(clientX, clientY) {
     if (!this.renderedCables.length || !this.svg) return null;
-    const svgRect = this.svg.getBoundingClientRect();
     if (!this.hitSvgPoint && this.svg.createSVGPoint) {
       this.hitSvgPoint = this.svg.createSVGPoint();
     }
     if (!this.hitSvgPoint) return null;
 
-    this.hitSvgPoint.x = clientX - svgRect.left;
-    this.hitSvgPoint.y = clientY - svgRect.top;
+    const pt = this.clientToSvgPoint(clientX, clientY);
+    this.hitSvgPoint.x = pt.x;
+    this.hitSvgPoint.y = pt.y;
 
     for (let i = this.renderedCables.length - 1; i >= 0; i--) {
       const item = this.renderedCables[i];
@@ -142,8 +157,7 @@ export class CableRenderer {
       item.p2.element?.classList.add('port-cable-hover');
     }
 
-    const svgRect = this.svg.getBoundingClientRect();
-    this.showTooltip(item.cable, clientX - svgRect.left, clientY - svgRect.top + 18);
+    this.showTooltip(item.cable, clientX, clientY + 18);
   }
 
   clearCableHover(keepPortFocus = false) {
@@ -204,12 +218,13 @@ export class CableRenderer {
     const deviceEl = portSlot.closest('.installed-device');
     const devRect = deviceEl ? deviceEl.getBoundingClientRect() : jackRect;
     const svgRect = this.svg.getBoundingClientRect();
+    const scale = this.getScale();
 
     return {
-      x: jackRect.left + jackRect.width / 2 - svgRect.left,
-      y: jackRect.top + jackRect.height / 2 - svgRect.top,
-      devTop: devRect.top - svgRect.top,
-      devBottom: devRect.bottom - svgRect.top,
+      x: (jackRect.left + jackRect.width / 2 - svgRect.left) / scale,
+      y: (jackRect.top + jackRect.height / 2 - svgRect.top) / scale,
+      devTop: (devRect.top - svgRect.top) / scale,
+      devBottom: (devRect.bottom - svgRect.top) / scale,
       labelPos: portSlot.dataset.labelPos || 'bottom',
       deviceId,
       element: portSlot
@@ -230,8 +245,9 @@ export class CableRenderer {
   getRackBounds() {
     const rackRect = this.rackEl.getBoundingClientRect();
     const svgRect = this.svg.getBoundingClientRect();
-    const left = rackRect.left - svgRect.left;
-    const right = rackRect.right - svgRect.left;
+    const scale = this.getScale();
+    const left = (rackRect.left - svgRect.left) / scale;
+    const right = (rackRect.right - svgRect.left) / scale;
     return {
       left,
       right,
@@ -467,11 +483,7 @@ export class CableRenderer {
     const p1 = this.getPortCoordinates(store.cableDraft.deviceId, store.cableDraft.portId);
     if (!p1) return;
 
-    const svgRect = this.svg.getBoundingClientRect();
-    const p2 = {
-      x: store.cableDraft.clientX - svgRect.left,
-      y: store.cableDraft.clientY - svgRect.top
-    };
+    const p2 = this.clientToSvgPoint(store.cableDraft.clientX, store.cableDraft.clientY);
 
     // Для перетягивания кабеля курсором всегда используем прямую живую дугу
     const pathData = this.generateArcPath(p1, p2, 0);
@@ -537,9 +549,8 @@ export class CableRenderer {
       ${cable.label ? `<div class="mt-1 text-[10px] text-amber-300 font-sans italic">"${cable.label}"</div>` : ''}
     `;
 
-    const svgRect = this.svg.getBoundingClientRect();
-    tip.style.left = `${svgRect.left + x}px`;
-    tip.style.top = `${svgRect.top + y}px`;
+    tip.style.left = `${x}px`;
+    tip.style.top = `${y}px`;
     tip.style.opacity = '1';
     tip.style.transform = 'translate(-50%, 0)';
   }

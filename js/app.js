@@ -9,6 +9,11 @@ import { CliEditor } from './cli-editor.js';
 import { TemplateBuilder } from './template-builder.js';
 
 // Early exposure of global modal and action shortcuts for inline HTML triggers
+const RACK_ZOOM_MIN = 0.15;
+const RACK_ZOOM_MAX = 2.0;
+const RACK_ZOOM_STEP = 0.1;
+const RACK_ZOOM_STORAGE_KEY = 'rack_studio_zoom_v1';
+
 window.openAddRackModal = () => (window.app ? window.app.openAddRackModal() : null);
 window.openEditRackModal = (id) => (window.app ? window.app.openEditRackModal(id) : null);
 window.closeRackModal = () => (window.app ? window.app.closeRackModal() : null);
@@ -23,11 +28,20 @@ window.deleteTemplateFromPalette = (id, e) => (window.app ? window.app.deleteTem
 window.editTemplateFromPalette = (id, e) => (window.app ? window.app.editTemplateFromPalette(id, e) : null);
 window.openTemplateBuilder = () => (window.app ? window.app.templateBuilder.open() : null);
 window.setCableRoutingMode = (mode) => (window.app ? window.app.setCableRoutingMode(mode) : null);
+window.zoomRackIn = () => (window.app ? window.app.stepRackZoom(1) : null);
+window.zoomRackOut = () => (window.app ? window.app.stepRackZoom(-1) : null);
+window.resetRackZoom = () => (window.app ? window.app.setRackZoom(1) : null);
+window.fitRackZoom = () => (window.app ? window.app.fitRackToViewport() : null);
 
 class App {
   constructor() {
     this.svgContainer = document.getElementById('cables-svg');
     this.rackContainer = document.getElementById('rack-container');
+    this.rackViewport = document.getElementById('rack-viewport');
+    this.rackViewportCanvas = document.getElementById('rack-viewport-canvas');
+    this.rackZoomSizer = document.getElementById('rack-zoom-sizer');
+    this.rackZoomStage = document.getElementById('rack-zoom-stage');
+    this.rackZoom = this.loadZoomPreference();
 
     this.cableRenderer = new CableRenderer(this.svgContainer, this.rackContainer);
     this.rackRenderer = new RackRenderer(this.rackContainer, this.cableRenderer);
@@ -41,6 +55,7 @@ class App {
     this.subscribeState();
 
     this.renderAll();
+    this.applyRackZoom({ preserveScroll: false });
     this.updateRoutingModeUI();
     this.updateSyncBadge({ status: store.syncStatus, message: store.syncMessage });
   }
@@ -62,6 +77,10 @@ class App {
     window.openAddGroupModal = () => this.openAddGroupModal();
     window.closeAddGroupModal = () => this.closeAddGroupModal();
     window.deleteGroupConfirm = (id, e) => this.deleteGroupConfirm(id, e);
+    window.zoomRackIn = () => this.stepRackZoom(1);
+    window.zoomRackOut = () => this.stepRackZoom(-1);
+    window.resetRackZoom = () => this.setRackZoom(1);
+    window.fitRackZoom = () => this.fitRackToViewport();
   }
 
   deleteRackConfirm(rackId) {
@@ -239,6 +258,25 @@ class App {
     document.getElementById('close-group-modal')?.addEventListener('click', () => {
       this.closeAddGroupModal();
     });
+
+    this.rackViewport?.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const anchor = { x: e.clientX, y: e.clientY };
+      if (Math.abs(e.deltaY) >= 40) {
+        this.stepRackZoom(e.deltaY < 0 ? 1 : -1, anchor);
+      } else if (e.deltaY !== 0) {
+        const factor = Math.exp(-e.deltaY * 0.005);
+        this.setRackZoom(this.rackZoom * factor, anchor);
+      }
+    }, { passive: false });
+
+    if (this.rackZoomStage && typeof ResizeObserver === 'function') {
+      this.rackStageObserver = new ResizeObserver(() => {
+        this.syncRackZoomSizer();
+      });
+      this.rackStageObserver.observe(this.rackZoomStage);
+    }
   }
 
   subscribeState() {
@@ -247,6 +285,7 @@ class App {
         this.updateRackSelector();
         this.renderWorkplaceFilterBadges();
         this.rackRenderer.render();
+        this.syncRackZoomSizer();
         this.cableRenderer.render();
       } else if (event === 'sync_status_changed') {
         this.updateSyncBadge(payload);
@@ -288,7 +327,143 @@ class App {
     this.updateRackSelector();
     this.renderWorkplaceFilterBadges();
     this.rackRenderer.render();
+    this.syncRackZoomSizer();
+    this.updateZoomUI();
     this.renderDetailsDrawer();
+  }
+
+  /** Restores saved viewport zoom factor for this browser without touching project state. */
+  loadZoomPreference() {
+    try {
+      const saved = parseFloat(localStorage.getItem(RACK_ZOOM_STORAGE_KEY));
+      if (Number.isFinite(saved)) {
+        return this.clampZoom(saved);
+      }
+    } catch {
+      // Ignore storage access restrictions
+    }
+    return 1;
+  }
+
+  saveZoomPreference(zoom) {
+    try {
+      localStorage.setItem(RACK_ZOOM_STORAGE_KEY, String(zoom));
+    } catch {
+      // Ignore storage access restrictions
+    }
+  }
+
+  clampZoom(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 1;
+    return Math.min(RACK_ZOOM_MAX, Math.max(RACK_ZOOM_MIN, Math.round(num * 100) / 100));
+  }
+
+  /** Keeps scroll sizer dimensions and side cable-channel gutters synchronized with zoom and rack height. */
+  syncRackZoomSizer() {
+    if (!this.rackZoomStage || !this.rackZoomSizer) return;
+    const z = this.rackZoom || 1;
+    const baseW = this.rackZoomStage.offsetWidth || 760;
+    const baseH = this.rackZoomStage.offsetHeight || this.rackContainer?.offsetHeight || 0;
+    this.rackZoomSizer.style.width = `${Math.round(baseW * z)}px`;
+    this.rackZoomSizer.style.height = `${Math.round(baseH * z)}px`;
+    if (this.rackViewportCanvas) {
+      const padX = Math.round(56 * Math.max(1, z));
+      this.rackViewportCanvas.style.paddingLeft = `${padX}px`;
+      this.rackViewportCanvas.style.paddingRight = `${padX}px`;
+    }
+  }
+
+  updateZoomUI() {
+    const btnOut = document.getElementById('btn-zoom-out');
+    const btnReset = document.getElementById('btn-zoom-reset');
+    const btnIn = document.getElementById('btn-zoom-in');
+    const pct = Math.round((this.rackZoom || 1) * 100);
+
+    if (btnReset) {
+      btnReset.textContent = `${pct}%`;
+      btnReset.classList.toggle('text-cyan-300', pct !== 100);
+      btnReset.classList.toggle('text-slate-200', pct === 100);
+    }
+    if (btnOut) btnOut.disabled = this.rackZoom <= RACK_ZOOM_MIN;
+    if (btnIn) btnIn.disabled = this.rackZoom >= RACK_ZOOM_MAX;
+  }
+
+  /** Applies current zoom scale and keeps anchorClient (or viewport center) stationary in view. */
+  applyRackZoom({ prevZoom = this.rackZoom, anchorClient = null, preserveScroll = true } = {}) {
+    if (!this.rackZoomStage) {
+      this.updateZoomUI();
+      return;
+    }
+
+    let anchorX = 0;
+    let anchorY = 0;
+    let localX = 0;
+    let localY = 0;
+    const canAnchor = preserveScroll && this.rackViewport && prevZoom > 0;
+
+    if (canAnchor) {
+      const vpRect = this.rackViewport.getBoundingClientRect();
+      anchorX = anchorClient?.x ?? (vpRect.left + this.rackViewport.clientWidth / 2);
+      anchorY = anchorClient?.y ?? (vpRect.top + this.rackViewport.clientHeight / 2);
+      const stageBefore = this.rackZoomStage.getBoundingClientRect();
+      localX = (anchorX - stageBefore.left) / prevZoom;
+      localY = (anchorY - stageBefore.top) / prevZoom;
+    }
+
+    const z = this.rackZoom || 1;
+    this.rackZoomStage.style.transform = z === 1 ? '' : `scale(${z})`;
+    this.syncRackZoomSizer();
+    this.updateZoomUI();
+
+    if (canAnchor) {
+      const stageAfter = this.rackZoomStage.getBoundingClientRect();
+      this.rackViewport.scrollLeft += (stageAfter.left + localX * z) - anchorX;
+      this.rackViewport.scrollTop += (stageAfter.top + localY * z) - anchorY;
+    }
+  }
+
+  setRackZoom(nextZoom, anchorClient = null) {
+    const prevZoom = this.rackZoom;
+    const clamped = this.clampZoom(nextZoom);
+    const expectedTransform = clamped === 1 ? '' : `scale(${clamped})`;
+    if (clamped === prevZoom && this.rackZoomStage?.style.transform === expectedTransform) {
+      return clamped;
+    }
+    this.rackZoom = clamped;
+    this.saveZoomPreference(clamped);
+    this.applyRackZoom({ prevZoom, anchorClient, preserveScroll: true });
+    this.cableRenderer?.hideTooltip();
+    return clamped;
+  }
+
+  stepRackZoom(direction, anchorClient = null) {
+    const pct = Math.round((this.rackZoom || 1) * 100);
+    const stepPct = Math.round(RACK_ZOOM_STEP * 100);
+    const nextPct = direction > 0
+      ? (Math.floor(pct / stepPct) + 1) * stepPct
+      : (Math.ceil(pct / stepPct) - 1) * stepPct;
+    return this.setRackZoom(nextPct / 100, anchorClient);
+  }
+
+  /** Fits the entire active rack inside #rack-viewport without clipping width or height. */
+  fitRackToViewport() {
+    if (!this.rackViewport || !this.rackContainer) return 1;
+    const rackW = this.rackContainer.offsetWidth || 760;
+    const rackH = Math.max(this.rackContainer.offsetHeight || 0, this.rackZoomStage?.offsetHeight || 0);
+    if (!rackW || !rackH) return 1;
+
+    const availW = Math.max(200, this.rackViewport.clientWidth - 112);
+    const availH = Math.max(200, this.rackViewport.clientHeight - 48);
+    const fitZoom = this.clampZoom(Math.floor(Math.min(availH / rackH, availW / rackW) * 100) / 100);
+    const prevZoom = this.rackZoom;
+    this.rackZoom = fitZoom;
+    this.saveZoomPreference(fitZoom);
+    this.applyRackZoom({ prevZoom, preserveScroll: false });
+    this.rackViewport.scrollTop = 0;
+    this.rackViewport.scrollLeft = 0;
+    this.cableRenderer?.hideTooltip();
+    return fitZoom;
   }
 
   setCableRoutingMode(mode) {

@@ -28,7 +28,7 @@
   <!-- Custom CSS -->
   <link rel="stylesheet" href="css/style.css">
 </head>
-<body class="bg-[#0a0c10] text-slate-100 min-h-screen flex flex-col bg-grid-pattern select-none">
+<body class="bg-[#0a0c10] text-slate-100 h-screen overflow-hidden flex flex-col bg-grid-pattern select-none">
 
   <!-- ================= TOP HEADER ================= -->
   <header class="h-14 border-b border-slate-800 bg-[#0e1117]/95 backdrop-blur px-5 flex items-center justify-between z-40 shrink-0">
@@ -113,7 +113,7 @@
       </button>
     </div>
 
-    <!-- Isolation Mode & Routing Settings -->
+    <!-- Isolation Mode, Routing & Zoom Settings -->
     <div class="flex items-center gap-3 shrink-0 text-xs text-slate-400 border-l border-slate-800 pl-4">
       <div class="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800" title="Способ укладки длинных кабелей">
         <button id="btn-route-channels" onclick="window.setCableRoutingMode('channels')" class="px-2.5 py-0.5 rounded-md text-[11px] font-medium transition bg-cyan-600 text-white">Каналы</button>
@@ -123,14 +123,21 @@
         <input type="checkbox" id="toggle-dim-cables" checked class="rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-0">
         <span>Затемнять другие кабели</span>
       </label>
+      <div class="h-4 w-px bg-slate-800"></div>
+      <div id="rack-zoom-controls" class="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800" title="Масштаб стойки (Ctrl + колесико мыши)">
+        <button id="btn-zoom-out" type="button" onclick="window.zoomRackOut()" class="px-2 py-0.5 rounded-md text-xs font-mono font-bold text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition" title="Отдалить (Ctrl + колесико)">-</button>
+        <button id="btn-zoom-reset" type="button" onclick="window.resetRackZoom()" class="px-2 py-0.5 rounded-md text-[11px] font-mono font-semibold text-slate-200 hover:text-cyan-300 hover:bg-slate-800 min-w-[46px] text-center transition" title="Сбросить масштаб до 100%">100%</button>
+        <button id="btn-zoom-in" type="button" onclick="window.zoomRackIn()" class="px-2 py-0.5 rounded-md text-xs font-mono font-bold text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition" title="Приблизить (Ctrl + колесико)">+</button>
+        <button id="btn-zoom-fit" type="button" onclick="window.fitRackZoom()" class="ml-0.5 px-2 py-0.5 rounded-md text-[11px] font-medium text-slate-400 hover:text-cyan-300 hover:bg-slate-800 border-l border-slate-800 transition" title="Вместить стойку целиком">Вместить</button>
+      </div>
     </div>
   </div>
 
   <!-- ================= MAIN WORKSPACE AREA ================= -->
-  <main class="flex-1 flex overflow-hidden relative">
+  <main class="flex-1 flex min-h-0 overflow-hidden relative">
 
     <!-- Left Stats & Navigation Sidebar -->
-    <aside class="w-64 border-r border-slate-800 bg-[#0c0e14] p-4 flex flex-col justify-between shrink-0 hidden md:flex">
+    <aside class="w-64 border-r border-slate-800 bg-[#0c0e14] p-4 flex flex-col justify-between shrink-0 hidden md:flex overflow-y-auto">
       <div class="space-y-4">
         <div>
           <div class="flex items-center justify-between mb-2">
@@ -167,21 +174,24 @@
     </aside>
 
     <!-- Center Stage: Server Rack & Cable SVG Canvas -->
-    <section class="flex-1 overflow-y-auto py-6 px-14 flex justify-center relative" id="rack-viewport">
-      
-      <div class="relative w-full max-w-[760px] pb-24">
-        
-        <!-- The 19" Server Rack Enclosure (DOM nodes) -->
-        <div id="rack-container">
-          <!-- Rendered by rack-renderer.js -->
+    <section class="flex-1 min-w-0 min-h-0 overflow-auto relative" id="rack-viewport">
+      <div id="rack-viewport-canvas" class="inline-flex min-w-full min-h-full py-6 px-14 justify-center items-start">
+        <div id="rack-zoom-sizer" class="relative shrink-0">
+          <div id="rack-zoom-stage" class="relative w-[760px] pb-10 origin-top-left">
+
+            <!-- The 19" Server Rack Enclosure (DOM nodes) -->
+            <div id="rack-container">
+              <!-- Rendered by rack-renderer.js -->
+            </div>
+
+            <!-- SVG Cable Overlay Layer (Sits precisely over the rack) -->
+            <svg id="cables-svg" class="absolute inset-0 w-full h-full pointer-events-none z-30 overflow-visible">
+              <g id="cables-layer" class="pointer-events-none"></g>
+              <g id="draft-layer" class="pointer-events-none"></g>
+            </svg>
+
+          </div>
         </div>
-
-        <!-- SVG Cable Overlay Layer (Sits precisely over the rack) -->
-        <svg id="cables-svg" class="absolute inset-0 w-full h-full pointer-events-none z-30 overflow-visible">
-          <g id="cables-layer" class="pointer-events-none"></g>
-          <g id="draft-layer" class="pointer-events-none"></g>
-        </svg>
-
       </div>
     </section>
 

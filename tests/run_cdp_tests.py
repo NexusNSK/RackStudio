@@ -124,6 +124,7 @@ def launch_browser():
     cmd = [
         EDGE_PATH,
         "--headless=new",
+        "--window-size=1440,900",
         f"--remote-debugging-port={PORT}",
         f"--user-data-dir={profile_dir}",
         "--no-first-run",
@@ -174,6 +175,12 @@ async def run_test_suite():
         print(f"[2/9] Connected to CDP endpoint: {ws_url}")
         client = CDPClient(ws_url)
         await client.connect()
+        await client.send("Emulation.setDeviceMetricsOverride", {
+            "width": 1440,
+            "height": 900,
+            "deviceScaleFactor": 1,
+            "mobile": False
+        })
 
         # Step 1: Navigate to app
         print(f"[3/9] Navigating to {TEST_URL} ...")
@@ -915,6 +922,188 @@ async def run_test_suite():
             })()
         """)
         record("Legacy saved state merges new Eltex templates without resurrecting removed defaults", bool(legacy_migration_ok))
+
+        # -------------------------------------------------------------
+        # TEST 9B: Interactive Rack Zoom Controls, Cable Alignment & Drag
+        # -------------------------------------------------------------
+        print("\n--- Test Suite 9B: Rack Zoom & Scaled Interaction ---")
+        await client.eval("""
+            (() => {
+                document.getElementById('close-palette-modal')?.click();
+                window.store.clearSelection();
+            })()
+        """)
+        zoom_controls_ok = await client.eval("""
+            (() => {
+                window.resetRackZoom();
+                const btnIn = document.getElementById('btn-zoom-in');
+                const btnOut = document.getElementById('btn-zoom-out');
+                const btnReset = document.getElementById('btn-zoom-reset');
+                const btnFit = document.getElementById('btn-zoom-fit');
+                if (!btnIn || !btnOut || !btnReset || !btnFit) return false;
+
+                btnIn.click();
+                btnIn.click();
+                const zAfterIn = window.app.rackZoom;
+                const labelIn = btnReset.textContent.trim();
+                const stageW = document.getElementById('rack-container').getBoundingClientRect().width;
+
+                btnOut.click();
+                const zAfterOut = window.app.rackZoom;
+
+                btnFit.click();
+                const vp = document.getElementById('rack-viewport');
+                const fitZoom = window.app.rackZoom;
+                const fitsVertically = vp.scrollHeight <= vp.clientHeight + 2;
+
+                btnReset.click();
+                const zAfterReset = window.app.rackZoom;
+
+                return (
+                    Math.abs(zAfterIn - 1.2) < 0.001 &&
+                    labelIn === '120%' &&
+                    Math.abs(stageW - 760 * 1.2) < 2 &&
+                    Math.abs(zAfterOut - 1.1) < 0.001 &&
+                    fitZoom < 1 &&
+                    fitsVertically &&
+                    zAfterReset === 1
+                );
+            })()
+        """)
+        record("Zoom toolbar controls (+/-/Reset/Fit) scale rack and fit viewport", bool(zoom_controls_ok))
+
+        wheel_zoom_ok = await client.eval("""
+            (() => {
+                window.resetRackZoom();
+                const vp = document.getElementById('rack-viewport');
+                vp.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, ctrlKey: true, clientX: 500, clientY: 400, bubbles: true, cancelable: true }));
+                const zoomed = window.app.rackZoom;
+                window.resetRackZoom();
+                return Math.abs(zoomed - 1.1) < 0.001;
+            })()
+        """)
+        record("Ctrl+Wheel on rack viewport zooms smoothly", bool(wheel_zoom_ok))
+
+        zoom_setup = await client.eval("""
+            (() => {
+                const rack = window.store.getActiveRack();
+                const occupied = new Set();
+                rack.installedDevices.forEach(d => {
+                    const h = window.store.getTemplate(d.templateId)?.uHeight || 1;
+                    for (let i = 0; i < h; i++) occupied.add(d.uPosition + i);
+                });
+                let baseU = null;
+                for (let u = rack.uHeight - 3; u >= 4; u--) {
+                    if ([u + 3, u + 2, u + 1, u, u - 1, u - 2].every(slot => !occupied.has(slot))) {
+                        baseU = u;
+                        break;
+                    }
+                }
+                const swU = baseU + 2;
+                const ppU = baseU;
+                const sw = window.store.installDevice('tpl-switch-24p', swU);
+                const pp = window.store.installDevice('tpl-patch-24p', ppU);
+                const c = window.store.addCable({
+                    from: { deviceId: sw.id, portId: 'p-1' },
+                    to: { deviceId: pp.id, portId: 'p-1' },
+                    color: '#22d3ee',
+                    type: 'Cat6 UTP',
+                    lengthM: 1,
+                    label: 'Zoom Check'
+                });
+                return { swId: sw.id, ppId: pp.id, cableId: c.id, ppStartU: ppU };
+            })()
+        """)
+        await asyncio.sleep(0.2)
+
+        async def verify_zoom_geometry(scale_val):
+            pt_info = await client.eval(f"""
+                (() => {{
+                    window.app.setRackZoom({scale_val});
+                    window.store.clearSelection();
+                    window.app.cableRenderer.render();
+                    const cr = window.app.cableRenderer;
+                    const vp = document.getElementById('rack-viewport');
+                    const item = cr.renderedCables.find(c => c.cable.id === '{zoom_setup["cableId"]}');
+                    const jack = document.querySelector(`.installed-device[data-device-id="{zoom_setup["swId"]}"] .port-slot[data-port-id="p-1"] .port-jack`);
+                    if (!item || !jack) return {{ error: 'missing item or jack' }};
+                    jack.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+                    if (vp) vp.scrollLeft = 0;
+                    const jackRect = jack.getBoundingClientRect();
+                    const svgRect = cr.svg.getBoundingClientRect();
+                    const scale = cr.getScale();
+                    const boot = item.g.querySelector('circle');
+                    const bx = svgRect.left + parseFloat(boot.getAttribute('cx')) * scale;
+                    const by = svgRect.top + parseFloat(boot.getAttribute('cy')) * scale;
+                    const jx = jackRect.left + jackRect.width / 2;
+                    const jy = jackRect.top + jackRect.height / 2;
+                    const aligned = Math.hypot(bx - jx, by - jy) < 2.0;
+
+                    const len = item.hitPath.getTotalLength();
+                    const pt = item.hitPath.getPointAtLength(len * 0.5);
+                    return {{
+                        aligned,
+                        bootDiff: Math.round(Math.hypot(bx - jx, by - jy) * 100) / 100,
+                        scaleDelta: Math.abs(scale - {scale_val}),
+                        cx: svgRect.left + pt.x * scale,
+                        cy: svgRect.top + pt.y * scale
+                    }};
+                }})()
+            """)
+            if not pt_info or pt_info.get("error") or not pt_info["aligned"] or pt_info["scaleDelta"] >= 0.02:
+                return False, f"pt_info={pt_info}"
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": pt_info["cx"], "y": pt_info["cy"]})
+            await asyncio.sleep(0.1)
+            await client.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": pt_info["cx"], "y": pt_info["cy"], "button": "left", "clickCount": 1})
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": pt_info["cx"], "y": pt_info["cy"], "button": "left", "clickCount": 1})
+            await asyncio.sleep(0.15)
+            sel = await client.eval("window.store.selectedEntity?.id || null")
+            return sel == zoom_setup["cableId"], f"cx={round(pt_info['cx'],1)}, cy={round(pt_info['cy'],1)}, sel={sel}, want={zoom_setup['cableId']}"
+
+        zoom_in_cable_ok, zoom_in_info = await verify_zoom_geometry(1.5)
+        record("At 150% zoom cables align with ports and remain clickable", bool(zoom_in_cable_ok), zoom_in_info)
+
+        # Verify drag & drop works accurately while zoomed to 150%
+        drag_info_zoom = await client.eval(f"""
+            (() => {{
+                const ppEl = document.querySelector(`.installed-device[data-device-id="{zoom_setup["ppId"]}"]`);
+                const vp = document.getElementById('rack-viewport');
+                if (!ppEl) return null;
+                ppEl.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+                if (vp) vp.scrollLeft = 0;
+                const rect = ppEl.getBoundingClientRect();
+                return {{ x: rect.left + 10, y: rect.top + rect.height / 2, slotH: rect.height }};
+            }})()
+        """)
+        zoom_drag_ok = False
+        drag_details = ""
+        if drag_info_zoom:
+            sx = drag_info_zoom["x"]
+            sy = drag_info_zoom["y"]
+            dy = drag_info_zoom["slotH"] * 2
+            await client.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": sx, "y": sy, "button": "left", "clickCount": 1})
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": sx, "y": sy + dy * 0.5, "buttons": 1})
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": sx, "y": sy + dy, "buttons": 1})
+            await asyncio.sleep(0.1)
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": sx, "y": sy + dy, "button": "left", "clickCount": 1})
+            await asyncio.sleep(0.15)
+            new_u = await client.eval(f"window.store.getActiveRack().installedDevices.find(d => d.id === '{zoom_setup['ppId']}')?.uPosition")
+            zoom_drag_ok = (new_u == zoom_setup["ppStartU"] - 2)
+            drag_details = f"sx={round(sx,1)}, sy={round(sy,1)}, new_u={new_u}, want={zoom_setup['ppStartU'] - 2}"
+        record("Drag device moves accurate slot distance at 150% zoom", zoom_drag_ok, drag_details)
+
+        zoom_out_cable_ok, zoom_out_info = await verify_zoom_geometry(0.6)
+        record("At 60% zoom cables align with ports and remain clickable", bool(zoom_out_cable_ok), zoom_out_info)
+
+        await client.eval(f"""
+            (() => {{
+                window.app.setRackZoom(1);
+                localStorage.removeItem('rack_studio_zoom_v1');
+                window.store.removeDevice('{zoom_setup["swId"]}');
+                window.store.removeDevice('{zoom_setup["ppId"]}');
+                window.store.clearSelection();
+            }})()
+        """)
 
         # -------------------------------------------------------------
         # TEST 9: Export / Import JSON & Reset
