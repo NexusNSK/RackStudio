@@ -87,16 +87,17 @@ export class CableRenderer {
   }
 
   getPortCoordinates(deviceId, portId) {
-    const portEl = this.rackEl.querySelector(`[data-device-id="${deviceId}"][data-port-id="${portId}"]`);
-    if (!portEl) return null;
+    const portSlot = this.rackEl.querySelector(`[data-device-id="${deviceId}"][data-port-id="${portId}"]`);
+    if (!portSlot) return null;
 
-    const portRect = portEl.getBoundingClientRect();
+    const jackEl = portSlot.querySelector('.port-jack') || portSlot;
+    const jackRect = jackEl.getBoundingClientRect();
     const svgRect = this.svg.getBoundingClientRect();
 
     return {
-      x: portRect.left + portRect.width / 2 - svgRect.left,
-      y: portRect.top + portRect.height / 2 - svgRect.top,
-      element: portEl
+      x: jackRect.left + jackRect.width / 2 - svgRect.left,
+      y: jackRect.top + jackRect.height / 2 - svgRect.top,
+      element: portSlot
     };
   }
 

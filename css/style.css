@@ -72,8 +72,11 @@ body {
 }
 
 .port-cable-hover {
-  transform: scale(1.3) !important;
   z-index: 60 !important;
+}
+
+.port-cable-hover .port-jack {
+  transform: scale(1.25) !important;
   box-shadow: 0 0 14px #38bdf8 !important;
   border-color: #38bdf8 !important;
 }
