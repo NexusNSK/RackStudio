@@ -19,6 +19,10 @@ export class CableRenderer {
     this.initEvents();
   }
 
+  isLightTheme() {
+    return document.documentElement.dataset.theme === 'light';
+  }
+
   initEvents() {
     window.addEventListener('mousemove', (e) => {
       if (store.cableDraft) {
@@ -447,10 +451,11 @@ export class CableRenderer {
       hitPath.setAttribute('pointer-events', 'none');
 
       // Тёмная подложка («эффект моста») для чёткого разделения пересекающихся кабелей
+      const isLight = this.isLightTheme();
       const casingPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       casingPath.setAttribute('d', pathData);
       casingPath.setAttribute('fill', 'none');
-      casingPath.setAttribute('stroke', '#0b0e14');
+      casingPath.setAttribute('stroke', isLight ? '#f8fafc' : '#0b0e14');
       casingPath.setAttribute('stroke-width', isSelected ? '7' : '4.5');
       casingPath.setAttribute('stroke-linecap', 'round');
       casingPath.setAttribute('stroke-linejoin', 'round');
@@ -531,16 +536,16 @@ export class CableRenderer {
         pillRect.setAttribute('width', pillW);
         pillRect.setAttribute('height', pillH);
         pillRect.setAttribute('rx', '4');
-        pillRect.setAttribute('fill', '#111827');
+        pillRect.setAttribute('fill', isLight ? '#ffffff' : '#111827');
         pillRect.setAttribute('stroke', cable.color || '#6366f1');
         pillRect.setAttribute('stroke-width', '1.2');
-        pillRect.setAttribute('fill-opacity', isEffectiveActive ? '0.95' : '0.35');
+        pillRect.setAttribute('fill-opacity', isEffectiveActive ? '0.96' : (isLight ? '0.88' : '0.35'));
 
         const pillTxt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         pillTxt.setAttribute('x', rectX + pillW / 2);
         pillTxt.setAttribute('y', crossBadgeInfo.y + 3);
         pillTxt.setAttribute('text-anchor', 'middle');
-        pillTxt.setAttribute('fill', isEffectiveActive ? '#e0e7ff' : '#64748b');
+        pillTxt.setAttribute('fill', isEffectiveActive ? (isLight ? '#0f172a' : '#e0e7ff') : (isLight ? '#475569' : '#64748b'));
         pillTxt.setAttribute('font-size', '9');
         pillTxt.setAttribute('font-family', 'JetBrains Mono, monospace');
         pillTxt.textContent = labelText;

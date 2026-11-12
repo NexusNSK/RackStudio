@@ -1528,6 +1528,144 @@ async def run_test_suite():
         await client.eval("window.store.setActiveGroupFilter('ALL')")
         record("Workplace group filter highlights matching path and dims others in Topology", bool(topo_filter_ok))
 
+        # Test dragging topology nodes with live edge re-routing, zoom accuracy, click-select & layout reset
+        await client.eval("document.getElementById('topo-scope-active').click(); window.store.clearSelection();")
+        await asyncio.sleep(0.2)
+
+        drag_target = await client.eval("""
+            (() => {
+                const node = Array.from(document.querySelectorAll('#topology-svg .topo-node')).find(n => n.textContent.includes('Gateway'));
+                if (!node) return null;
+                const rect = node.querySelector('rect');
+                const box = rect.getBoundingClientRect();
+                const edge = Array.from(document.querySelectorAll('#topology-svg .topo-edge')).find(e => e.textContent.includes('P10') || e.dataset.bundleKey?.includes('dev-gateway'));
+                return {
+                    devId: node.dataset.deviceId,
+                    origX: parseFloat(rect.getAttribute('x')),
+                    origY: parseFloat(rect.getAttribute('y')),
+                    cx: box.left + box.width / 2,
+                    cy: box.top + box.height / 2,
+                    edgeBeforeD: edge?.querySelector('.topo-edge-line')?.getAttribute('d') || '',
+                    resetDisabledBefore: document.getElementById('btn-topo-reset-layout')?.disabled
+                };
+            })()
+        """)
+
+        topo_drag_ok = False
+        topo_drag_details = ""
+        if drag_target:
+            sx, sy = drag_target["cx"], drag_target["cy"]
+            await client.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": sx, "y": sy, "button": "left", "clickCount": 1})
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": sx + 90, "y": sy + 140, "buttons": 1})
+            await asyncio.sleep(0.05)
+
+            live_check = await client.eval(f"""
+                (() => {{
+                    const node = document.querySelector('#topology-svg .topo-node[data-device-id="{drag_target["devId"]}"]');
+                    const edge = Array.from(document.querySelectorAll('#topology-svg .topo-edge')).find(e => e.dataset.bundleKey?.includes('{drag_target["devId"]}'));
+                    return {{
+                        tf: node?.getAttribute('transform') || '',
+                        liveD: edge?.querySelector('.topo-edge-line')?.getAttribute('d') || ''
+                    }};
+                }})()
+            """)
+
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": sx + 180, "y": sy + 280, "buttons": 1})
+            await asyncio.sleep(0.05)
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": sx + 180, "y": sy + 280, "button": "left", "clickCount": 1})
+            await asyncio.sleep(0.2)
+
+            after_drag = await client.eval(f"""
+                (() => {{
+                    const node = document.querySelector('#topology-svg .topo-node[data-device-id="{drag_target["devId"]}"]');
+                    const rect = node?.querySelector('rect');
+                    const edge = Array.from(document.querySelectorAll('#topology-svg .topo-edge')).find(e => e.dataset.bundleKey?.includes('{drag_target["devId"]}'));
+                    return {{
+                        newX: parseFloat(rect?.getAttribute('x') || '0'),
+                        newY: parseFloat(rect?.getAttribute('y') || '0'),
+                        edgeAfterD: edge?.querySelector('.topo-edge-line')?.getAttribute('d') || '',
+                        resetDisabledAfter: document.getElementById('btn-topo-reset-layout')?.disabled,
+                        selectedType: window.store.selectedEntity?.type || null
+                    }};
+                }})()
+            """)
+            topo_drag_ok = bool(
+                drag_target["resetDisabledBefore"] is True
+                and live_check and "translate(" in live_check["tf"]
+                and live_check["liveD"] != drag_target["edgeBeforeD"]
+                and after_drag["newX"] > drag_target["origX"] + 120
+                and after_drag["newY"] > drag_target["origY"] + 200
+                and after_drag["edgeAfterD"] != drag_target["edgeBeforeD"]
+                and after_drag["resetDisabledAfter"] is False
+                and after_drag["selectedType"] is None
+            )
+            topo_drag_details = f"before=({drag_target['origX']},{drag_target['origY']}), after=({after_drag['newX']},{after_drag['newY']})"
+        record("Topology node drag moves card smoothly with live edge updates and saves coordinates", topo_drag_ok, topo_drag_details)
+
+        # Verify dragging works cleanly at non-100% Topology zoom & clicking node without drag selects it
+        await client.eval("document.getElementById('topo-zoom-in').click(); document.getElementById('topo-zoom-in').click();")
+        await asyncio.sleep(0.15)
+        zoomed_drag_target = await client.eval(f"""
+            (() => {{
+                const node = document.querySelector('#topology-svg .topo-node[data-device-id="{drag_target["devId"]}"]');
+                const rect = node?.querySelector('rect');
+                const box = rect?.getBoundingClientRect();
+                return box ? {{ x: parseFloat(rect.getAttribute('x')), y: parseFloat(rect.getAttribute('y')), cx: box.left + box.width / 2, cy: box.top + box.height / 2 }} : null;
+            }})()
+        """)
+        zoom_drag_ok = False
+        click_select_ok = False
+        if zoomed_drag_target:
+            zx, zy = zoomed_drag_target["cx"], zoomed_drag_target["cy"]
+            await client.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": zx, "y": zy, "button": "left", "clickCount": 1})
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": zx - 65, "y": zy - 52, "buttons": 1})
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": zx - 65, "y": zy - 52, "button": "left", "clickCount": 1})
+            await asyncio.sleep(0.15)
+
+            z_after = await client.eval(f"""
+                (() => {{
+                    const rect = document.querySelector('#topology-svg .topo-node[data-device-id="{drag_target["devId"]}"] rect');
+                    const box = rect?.getBoundingClientRect();
+                    return {{
+                        x: parseFloat(rect?.getAttribute('x') || '0'),
+                        y: parseFloat(rect?.getAttribute('y') || '0'),
+                        cx: box.left + box.width / 2,
+                        cy: box.top + box.height / 2
+                    }};
+                }})()
+            """)
+            # 65px / 1.3 zoom ~= 50 SVG units delta
+            dx_svg = zoomed_drag_target["x"] - z_after["x"]
+            zoom_drag_ok = 35 <= dx_svg <= 65
+
+            # Plain click on zoomed node selects device cleanly
+            await client.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": z_after["cx"], "y": z_after["cy"], "button": "left", "clickCount": 1})
+            await client.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": z_after["cx"], "y": z_after["cy"], "button": "left", "clickCount": 1})
+            await asyncio.sleep(0.15)
+            click_select_ok = await client.eval(f"window.store.selectedEntity?.type === 'device' && window.store.selectedEntity?.id === '{drag_target['devId']}'")
+
+        await client.eval("document.getElementById('topo-zoom-reset').click(); window.store.clearSelection();")
+        await asyncio.sleep(0.1)
+        record("Topology drag scales accurately at 130% zoom while plain clicks still select devices", bool(zoom_drag_ok and click_select_ok), f"zoomDrag={zoom_drag_ok}, clickSel={click_select_ok}")
+
+        # Verify Reset Layout button restores hierarchical coordinates and disables button again
+        await client.eval("document.getElementById('btn-topo-reset-layout').click()")
+        await asyncio.sleep(0.2)
+        topo_reset_ok = await client.eval(f"""
+            (() => {{
+                const rect = document.querySelector('#topology-svg .topo-node[data-device-id="{drag_target["devId"]}"] rect');
+                const x = parseFloat(rect?.getAttribute('x') || '0');
+                const y = parseFloat(rect?.getAttribute('y') || '0');
+                return {{
+                    restoredX: x,
+                    restoredY: y,
+                    matchesOrig: Math.abs(x - {drag_target["origX"]}) < 2 && Math.abs(y - {drag_target["origY"]}) < 2,
+                    btnDisabled: document.getElementById('btn-topo-reset-layout')?.disabled === true
+                }};
+            }})()
+        """)
+        record("Reset Layout button restores auto-hierarchy in Topology view", bool(topo_reset_ok and topo_reset_ok["matchesOrig"] and topo_reset_ok["btnDisabled"]), str(topo_reset_ok))
+
         # -------------------------------------------------------------
         # TEST 15: Rack Passport & Print / PDF Export (Block F.1)
         # -------------------------------------------------------------
@@ -1591,6 +1729,126 @@ async def run_test_suite():
         await client.eval("document.getElementById('btn-view-rack').click()")
         await asyncio.sleep(0.2)
         record("Escape closes Print Passport modal cleanly", bool(print_closed))
+
+        # -------------------------------------------------------------
+        # TEST 16: Light Theme & Contrast Readability
+        # -------------------------------------------------------------
+        print("\n--- Test Suite 16: Light Theme & Contrast Readability ---")
+        await client.eval("document.getElementById('btn-toggle-theme').click()")
+        await asyncio.sleep(0.25)
+
+        light_ui_check = await client.eval("""
+            (() => {
+                const lum = (str) => {
+                    const m = String(str || '').match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/i);
+                    if (!m) return -1;
+                    const [r, g, b] = [Number(m[1]), Number(m[2]), Number(m[3])].map(v => {
+                        const s = v / 255;
+                        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+                    });
+                    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+                };
+                const bodyCs = getComputedStyle(document.body);
+                const hdrCs = getComputedStyle(document.querySelector('header'));
+                const ctaCs = getComputedStyle(document.getElementById('btn-catalog'));
+                const cabCs = getComputedStyle(document.querySelector('.rack-cabinet'));
+                const slotCs = getComputedStyle(document.querySelector('.rack-slots-column'));
+                const toggleBtn = document.getElementById('btn-toggle-theme');
+                const toggleLbl = document.getElementById('theme-toggle-label')?.textContent?.trim();
+                const devBadge = document.querySelector('.installed-device .rack-device-name');
+                const devBadgeBgLum = devBadge ? lum(getComputedStyle(devBadge).backgroundColor) : 0;
+                const firstCasing = document.querySelector('#cables-svg #cables-layer path[stroke="#f8fafc"]');
+                const hasCables = document.querySelectorAll('#cables-svg #cables-layer .cable-group').length > 0;
+                return {
+                    dataTheme: document.documentElement.dataset.theme,
+                    hasDarkClass: document.documentElement.classList.contains('dark'),
+                    stored: localStorage.getItem('rack_studio_theme_v1'),
+                    pressed: toggleBtn?.getAttribute('aria-pressed'),
+                    toggleLbl,
+                    bodyBgLum: lum(bodyCs.backgroundColor),
+                    bodyFgLum: lum(bodyCs.color),
+                    hdrBgLum: lum(hdrCs.backgroundColor),
+                    hdrFgLum: lum(hdrCs.color),
+                    cabBgLum: lum(cabCs.backgroundColor),
+                    slotBgLum: lum(slotCs.backgroundColor),
+                    ctaBgLum: lum(ctaCs.backgroundColor),
+                    ctaFgLum: lum(ctaCs.color),
+                    devBadgeBgLum,
+                    casingOk: !hasCables || !!firstCasing
+                };
+            })()
+        """)
+        record(
+            "Light Theme toggles UI surface, text contrast, hardware isolation & SVG bridge casing",
+            bool(
+                light_ui_check
+                and light_ui_check["dataTheme"] == "light"
+                and not light_ui_check["hasDarkClass"]
+                and light_ui_check["stored"] == "light"
+                and light_ui_check["pressed"] == "true"
+                and light_ui_check["toggleLbl"] == "Светлая"
+                and light_ui_check["bodyBgLum"] > 0.75
+                and light_ui_check["bodyFgLum"] < 0.08
+                and light_ui_check["hdrBgLum"] > 0.85
+                and light_ui_check["hdrFgLum"] < 0.08
+                and light_ui_check["cabBgLum"] > 0.85
+                and light_ui_check["slotBgLum"] > 0.85
+                and light_ui_check["ctaBgLum"] < 0.25
+                and light_ui_check["ctaFgLum"] > 0.9
+                and light_ui_check["devBadgeBgLum"] < 0.1
+                and light_ui_check["casingOk"]
+            ),
+            str(light_ui_check)
+        )
+
+        # Verify Light Theme Topology SVG & Reload Persistence
+        await client.eval("document.getElementById('btn-view-topology').click()")
+        await asyncio.sleep(0.25)
+        light_topo_ok = await client.eval("""
+            (() => {
+                const svg = document.getElementById('topology-svg');
+                const bgRect = svg?.querySelector('rect');
+                const texts = Array.from(svg?.querySelectorAll('text') || []);
+                return {
+                    hasSvg: !!svg,
+                    bgFill: bgRect?.getAttribute('fill'),
+                    hasDarkInk: texts.some(t => t.getAttribute('fill') === '#0f172a')
+                };
+            })()
+        """)
+        record(
+            "Topology SVG switches to Light Theme palette automatically",
+            bool(light_topo_ok and light_topo_ok["hasSvg"] and light_topo_ok["bgFill"] == "#ffffff" and light_topo_ok["hasDarkInk"]),
+            str(light_topo_ok)
+        )
+
+        await client.send("Page.reload")
+        await asyncio.sleep(0.4)
+        for _ in range(50):
+            ready = await client.eval("typeof window.app === 'object' && typeof window.store === 'object'")
+            if ready:
+                break
+            await asyncio.sleep(0.1)
+        await client.eval("window.alert = (msg) => console.log('[ALERT]', msg); window.confirm = () => true;")
+
+        persisted_light = await client.eval("""
+            (() => ({
+                dataTheme: document.documentElement.dataset.theme,
+                appTheme: window.app.theme,
+                hasThemeInProject: Object.prototype.hasOwnProperty.call(window.store.state, 'theme')
+            }))()
+        """)
+        record(
+            "Light Theme persists across page reload without polluting project state",
+            bool(persisted_light and persisted_light["dataTheme"] == "light" and persisted_light["appTheme"] == "light" and not persisted_light["hasThemeInProject"]),
+            str(persisted_light)
+        )
+
+        # Toggle back to dark cleanly and clear browser theme pref before remaining checks
+        await client.eval("document.getElementById('btn-toggle-theme').click(); localStorage.removeItem('rack_studio_theme_v1');")
+        await asyncio.sleep(0.15)
+        back_to_dark = await client.eval("document.documentElement.dataset.theme === 'dark' && document.documentElement.classList.contains('dark')")
+        record("Theme toggle cleanly restores Dark Theme", bool(back_to_dark))
 
         # -------------------------------------------------------------
         # TEST 9: Export / Import JSON & Reset

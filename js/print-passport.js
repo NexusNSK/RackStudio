@@ -106,9 +106,11 @@ export class PrintPassport {
     // Scale cleanly to ~660px printable width while keeping exact SVG alignment
     const fitScale = 660 / stageW;
     const scaledH = Math.round(stageH * fitScale);
+    const isLight = document.documentElement.dataset.theme === 'light';
+    const wrapBg = isLight ? '#f1f5f9; border: 1px solid #cbd5e1' : '#0f1115';
 
     return `
-      <div class="print-rack-wrap" style="width: 660px; height: ${scaledH}px; overflow: hidden; margin: 0 auto; border-radius: 10px; background: #0f1115; padding: 6px; box-sizing: content-box;">
+      <div class="print-rack-wrap" style="width: 660px; height: ${scaledH}px; overflow: hidden; margin: 0 auto; border-radius: 10px; background: ${wrapBg}; padding: 6px; box-sizing: content-box;">
         <div style="position: relative; width: ${stageW}px; height: ${stageH}px; transform: scale(${fitScale.toFixed(4)}); transform-origin: top left;">
           ${clone.innerHTML}
         </div>

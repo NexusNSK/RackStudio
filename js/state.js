@@ -45,6 +45,9 @@ class StateStore {
     if (!Array.isArray(targetState.templates)) {
       targetState.templates = [];
     }
+    if (!targetState.topologyPositions || typeof targetState.topologyPositions !== 'object' || Array.isArray(targetState.topologyPositions)) {
+      targetState.topologyPositions = {};
+    }
 
     if (!Array.isArray(targetState.knownDefaultTemplateIds)) {
       targetState.knownDefaultTemplateIds = Array.from(
@@ -397,6 +400,7 @@ class StateStore {
     if (rack) {
       const devIds = new Set(rack.installedDevices.map(d => d.id));
       this.state.cables = this.state.cables.filter(c => !devIds.has(c.from.deviceId) && !devIds.has(c.to.deviceId));
+      this.pruneTopologyPositions(devIds, rackId);
     }
     // Clean up groups belonging to this rack
     this.state.groups = (this.state.groups || []).filter(g => g.rackId !== rackId);
@@ -543,6 +547,7 @@ class StateStore {
     if (!rack) return;
     rack.installedDevices = rack.installedDevices.filter(d => d.id !== deviceId);
     this.state.cables = this.state.cables.filter(c => c.from.deviceId !== deviceId && c.to.deviceId !== deviceId);
+    this.pruneTopologyPositions(new Set([deviceId]));
     if (this.selectedEntity?.id === deviceId) {
       this.clearSelection();
     }
@@ -699,6 +704,57 @@ class StateStore {
 
   getCableRoutingMode() {
     return this.state.cableRoutingMode || 'channels';
+  }
+
+  getTopologyPositions(scopeKey) {
+    if (!scopeKey || !this.state.topologyPositions || typeof this.state.topologyPositions !== 'object') {
+      return {};
+    }
+    const bucket = this.state.topologyPositions[scopeKey];
+    return bucket && typeof bucket === 'object' ? bucket : {};
+  }
+
+  setTopologyNodePosition(scopeKey, deviceId, x, y) {
+    if (!scopeKey || !deviceId) return;
+    const nx = Math.round(Number(x));
+    const ny = Math.round(Number(y));
+    if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
+    if (!this.state.topologyPositions || typeof this.state.topologyPositions !== 'object') {
+      this.state.topologyPositions = {};
+    }
+    if (!this.state.topologyPositions[scopeKey] || typeof this.state.topologyPositions[scopeKey] !== 'object') {
+      this.state.topologyPositions[scopeKey] = {};
+    }
+    this.state.topologyPositions[scopeKey][deviceId] = {
+      x: Math.max(16, nx),
+      y: Math.max(16, ny)
+    };
+    this.notify('topology_layout_updated', { scopeKey, deviceId });
+  }
+
+  resetTopologyPositions(scopeKey) {
+    if (!scopeKey || !this.state.topologyPositions || typeof this.state.topologyPositions !== 'object') return;
+    if (!this.state.topologyPositions[scopeKey]) return;
+    delete this.state.topologyPositions[scopeKey];
+    this.notify('topology_layout_updated', { scopeKey, reset: true });
+  }
+
+  pruneTopologyPositions(deviceIds, removedRackKey = null) {
+    const map = this.state.topologyPositions;
+    if (!map || typeof map !== 'object') return;
+    if (removedRackKey && map[removedRackKey]) {
+      delete map[removedRackKey];
+    }
+    Object.keys(map).forEach(scopeKey => {
+      const bucket = map[scopeKey];
+      if (!bucket || typeof bucket !== 'object') return;
+      deviceIds.forEach(devId => {
+        delete bucket[devId];
+      });
+      if (Object.keys(bucket).length === 0) {
+        delete map[scopeKey];
+      }
+    });
   }
 
   setCableRoutingMode(mode) {

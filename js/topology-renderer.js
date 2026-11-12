@@ -13,6 +13,66 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+/**
+ * Computes SVG Bezier path and pill label coordinates between two topology nodes.
+ * Uses live node rectangles so edges adapt naturally regardless of manual dragging.
+ */
+function computeTopologyEdgeGeometry(a, b, edge) {
+  const offsetShift = ((edge.parallelIndex || 0) - ((edge.parallelTotal || 1) - 1) / 2) * 26;
+  const cyA = a.y + a.h / 2;
+  const cyB = b.y + b.h / 2;
+  const upper = cyA <= cyB ? a : b;
+  const lower = cyA <= cyB ? b : a;
+  const verticalGap = lower.y - (upper.y + upper.h);
+
+  let x1, y1, x2, y2, cx1, cy1, cx2, cy2;
+
+  if (verticalGap >= 12) {
+    x1 = upper.x + upper.w / 2 + offsetShift * 0.45;
+    y1 = upper.y + upper.h;
+    x2 = lower.x + lower.w / 2 + offsetShift * 0.45;
+    y2 = lower.y;
+    const midY = (y1 + y2) / 2;
+    cx1 = x1 + offsetShift * 0.6;
+    cy1 = midY;
+    cx2 = x2 + offsetShift * 0.6;
+    cy2 = midY;
+  } else {
+    const left = a.x <= b.x ? a : b;
+    const right = a.x <= b.x ? b : a;
+    const horizGap = right.x - (left.x + left.w);
+
+    if (horizGap >= 150) {
+      x1 = left.x + left.w;
+      y1 = left.y + left.h / 2 + offsetShift * 0.35;
+      x2 = right.x;
+      y2 = right.y + right.h / 2 + offsetShift * 0.35;
+      const midX = (x1 + x2) / 2;
+      cx1 = midX;
+      cy1 = y1 + offsetShift * 0.35;
+      cx2 = midX;
+      cy2 = y2 + offsetShift * 0.35;
+    } else {
+      x1 = left.x + left.w / 2;
+      y1 = left.y;
+      x2 = right.x + right.w / 2;
+      y2 = right.y;
+      const minTop = Math.min(y1, y2);
+      const arcLift = 38 + Math.abs((edge.parallelIndex || 0) + 1) * 18;
+      cx1 = x1;
+      cy1 = minTop - arcLift;
+      cx2 = x2;
+      cy2 = minTop - arcLift;
+    }
+  }
+
+  return {
+    d: `M ${x1.toFixed(1)},${y1.toFixed(1)} C ${cx1.toFixed(1)},${cy1.toFixed(1)} ${cx2.toFixed(1)},${cy2.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`,
+    labelX: 0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2,
+    labelY: 0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2
+  };
+}
+
 function getCategoryMeta(category, vendor = '') {
   const isEltex = String(vendor).toLowerCase().includes('eltex');
   switch (category) {
@@ -39,6 +99,28 @@ export class TopologyRenderer {
     this.showStandalone = true;
     this.zoom = 1;
     this.lastModel = null;
+    this.dragState = null;
+    this.suppressNextClick = false;
+    this.suppressTimer = null;
+
+    this.onWindowMouseMove = (e) => this.handleDragMove(e);
+    this.onWindowMouseUp = () => this.handleDragEnd();
+    window.addEventListener('mousemove', this.onWindowMouseMove);
+    window.addEventListener('mouseup', this.onWindowMouseUp);
+  }
+
+  getScopeKey(scope = this.scope) {
+    if (scope === 'all') return 'all';
+    const activeRack = store.getActiveRack();
+    return activeRack?.id || 'default';
+  }
+
+  isSuppressingClick() {
+    return Boolean(this.suppressNextClick);
+  }
+
+  resetLayout() {
+    store.resetTopologyPositions(this.getScopeKey());
   }
 
   setScope(scope) {
@@ -275,8 +357,8 @@ export class TopologyRenderer {
     const padY = 44;
 
     const maxCols = Math.max(1, ...rows.map(r => r.length));
-    const canvasWidth = Math.max(820, padX * 2 + maxCols * nodeW + Math.max(0, maxCols - 1) * gapX);
-    const canvasHeight = Math.max(360, padY * 2 + rows.length * nodeH + Math.max(0, rows.length - 1) * gapY);
+    let canvasWidth = Math.max(820, padX * 2 + maxCols * nodeW + Math.max(0, maxCols - 1) * gapX);
+    let canvasHeight = Math.max(360, padY * 2 + rows.length * nodeH + Math.max(0, rows.length - 1) * gapY);
 
     rows.forEach((rowNodes, rowIdx) => {
       const rowTotalW = rowNodes.length * nodeW + Math.max(0, rowNodes.length - 1) * gapX;
@@ -290,6 +372,24 @@ export class TopologyRenderer {
         node.x = startX + colIdx * (nodeW + gapX);
         node.y = y;
       });
+    });
+
+    // Overlay user-dragged custom coordinates for this scope
+    const scopeKey = this.getScopeKey(scope);
+    const customPositions = store.getTopologyPositions(scopeKey);
+    let hasCustomPositions = false;
+    nodes.forEach(node => {
+      const custom = customPositions?.[node.id];
+      if (custom && Number.isFinite(Number(custom.x)) && Number.isFinite(Number(custom.y))) {
+        node.x = Math.max(16, Math.round(Number(custom.x)));
+        node.y = Math.max(16, Math.round(Number(custom.y)));
+        node.isCustomPositioned = true;
+        hasCustomPositions = true;
+      } else {
+        node.isCustomPositioned = false;
+      }
+      canvasWidth = Math.max(canvasWidth, node.x + node.w + padX);
+      canvasHeight = Math.max(canvasHeight, node.y + node.h + padY);
     });
 
     // Edge aggregation (E.3) & parallel / STP loop detection
@@ -405,6 +505,8 @@ export class TopologyRenderer {
 
     return {
       scope,
+      scopeKey,
+      hasCustomPositions,
       nodes,
       edges,
       canvasWidth,
@@ -435,39 +537,7 @@ export class TopologyRenderer {
       const a = edge.fromNode;
       const b = edge.toNode;
 
-      // Connect bottom of upper node to top of lower node, or side-to-side if same row
-      let x1, y1, x2, y2, cx1, cy1, cx2, cy2;
-      const offsetShift = (edge.parallelIndex - (edge.parallelTotal - 1) / 2) * 26;
-
-      if (a.row !== b.row) {
-        const upper = a.row < b.row ? a : b;
-        const lower = a.row < b.row ? b : a;
-        x1 = upper.x + upper.w / 2 + offsetShift * 0.45;
-        y1 = upper.y + upper.h;
-        x2 = lower.x + lower.w / 2 + offsetShift * 0.45;
-        y2 = lower.y;
-        const midY = (y1 + y2) / 2;
-        cx1 = x1 + offsetShift * 0.6;
-        cy1 = midY;
-        cx2 = x2 + offsetShift * 0.6;
-        cy2 = midY;
-      } else {
-        const left = a.x <= b.x ? a : b;
-        const right = a.x <= b.x ? b : a;
-        x1 = left.x + left.w / 2;
-        y1 = left.y;
-        x2 = right.x + right.w / 2;
-        y2 = right.y;
-        const arcLift = 38 + Math.abs(edge.parallelIndex + 1) * 18;
-        cx1 = x1;
-        cy1 = y1 - arcLift;
-        cx2 = x2;
-        cy2 = y2 - arcLift;
-      }
-
-      const d = `M ${x1.toFixed(1)},${y1.toFixed(1)} C ${cx1.toFixed(1)},${cy1.toFixed(1)} ${cx2.toFixed(1)},${cy2.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`;
-      const labelX = 0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2;
-      const labelY = 0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2;
+      const { d, labelX, labelY } = computeTopologyEdgeGeometry(a, b, edge);
 
       const isSingle = edge.cables.length === 1;
       const primaryCable = edge.cables[0];
@@ -512,21 +582,23 @@ export class TopologyRenderer {
            opacity="${opacity}"
            data-bundle-key="${escapeHtml(edge.key)}"
            data-cable-ids="${escapeHtml(edge.cables.map(c => c.id).join(','))}">
-          <path d="${d}" fill="none" stroke="transparent" stroke-width="14"/>
-          <path d="${d}" fill="none"
-                stroke="${isEdgeSelected ? '#ffffff' : edge.color}"
+          <path class="topo-edge-hit" d="${d}" fill="none" stroke="transparent" stroke-width="14"/>
+          <path class="topo-edge-line" d="${d}" fill="none"
+                stroke="${isEdgeSelected ? (isLight ? '#0f172a' : '#ffffff') : edge.color}"
                 stroke-width="${strokeW + (isEdgeSelected ? 2 : 0)}"
                 ${edge.isInterRack ? 'stroke-dasharray="7 4"' : ''}
                 stroke-linecap="round"/>
-          <rect x="${(labelX - pillW / 2).toFixed(1)}"
+          <rect class="topo-edge-pill"
+                x="${(labelX - pillW / 2).toFixed(1)}"
                 y="${(labelY - pillH / 2).toFixed(1)}"
                 width="${pillW}" height="${pillH}" rx="6"
                 fill="${badgeFill}"
                 stroke="${edge.isLoopRisk ? '#f59e0b' : edge.color}"
                 stroke-width="${edge.isLoopRisk || isEdgeSelected ? '1.6' : '1.1'}"/>
-          <text x="${labelX.toFixed(1)}" y="${(labelY + 3.5).toFixed(1)}"
+          <text class="topo-edge-label"
+                x="${labelX.toFixed(1)}" y="${(labelY + 3.5).toFixed(1)}"
                 text-anchor="middle"
-                fill="${edge.isLoopRisk ? '#fbbf24' : pillTextColor}"
+                fill="${edge.isLoopRisk ? (isLight ? '#b45309' : '#fbbf24') : pillTextColor}"
                 font-size="9.5"
                 font-family="JetBrains Mono, monospace">${escapeHtml(labelText)}</text>
         </g>
@@ -552,7 +624,7 @@ export class TopologyRenderer {
       const shortMeta = metaLine.length > 31 ? `${metaLine.slice(0, 30)}…` : metaLine;
 
       return `
-        <g class="topo-node ${interactive ? 'cursor-pointer' : ''}"
+        <g class="topo-node"
            opacity="${nodeOpacity}"
            data-device-id="${escapeHtml(n.id)}">
           <rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="10"
@@ -597,6 +669,11 @@ export class TopologyRenderer {
 
     const svgContainer = this.viewport.querySelector('#topology-svg-stage');
     const summaryEl = this.viewport.querySelector('#topology-health-summary');
+    const resetBtn = this.viewport.querySelector('#btn-topo-reset-layout');
+
+    if (resetBtn) {
+      resetBtn.disabled = !model.hasCustomPositions;
+    }
 
     if (summaryEl) {
       const alerts = [];
@@ -619,13 +696,64 @@ export class TopologyRenderer {
       return;
     }
 
-    svgContainer.innerHTML = this.buildSvgMarkup(model, { theme: 'dark', interactive: true });
+    const isLight = document.documentElement.dataset.theme === 'light';
+    svgContainer.innerHTML = this.buildSvgMarkup(model, { theme: isLight ? 'light' : 'dark', interactive: true });
     this.applyZoom();
 
-    // Node click -> select device
+    // Node drag & click handlers
+    const svgEl = svgContainer.querySelector('#topology-svg');
+    const edgeElMap = new Map();
+    svgContainer.querySelectorAll('.topo-edge').forEach(el => {
+      const key = el.dataset.bundleKey;
+      if (key) edgeElMap.set(key, el);
+    });
+
     svgContainer.querySelectorAll('.topo-node').forEach(el => {
+      el.addEventListener('mousedown', (e) => {
+        if (e.button !== 0 || !svgEl) return;
+        e.stopPropagation();
+        const devId = el.dataset.deviceId;
+        const nodeModel = model.nodes.find(n => n.id === devId);
+        if (!nodeModel) return;
+
+        const pt = this.clientToSvgPoint(svgEl, e.clientX, e.clientY);
+        const connectedEdges = model.edges
+          .filter(ed => ed.fromNode.id === devId || ed.toNode.id === devId)
+          .map(ed => {
+            const edgeG = edgeElMap.get(ed.key);
+            if (!edgeG) return null;
+            const pillRect = edgeG.querySelector('.topo-edge-pill');
+            return {
+              edge: ed,
+              hitPath: edgeG.querySelector('.topo-edge-hit'),
+              linePath: edgeG.querySelector('.topo-edge-line'),
+              pillRect,
+              pillText: edgeG.querySelector('.topo-edge-label'),
+              pillW: parseFloat(pillRect?.getAttribute('width') || '80'),
+              pillH: parseFloat(pillRect?.getAttribute('height') || '20')
+            };
+          })
+          .filter(Boolean);
+
+        this.dragState = {
+          svgEl,
+          nodeEl: el,
+          nodeModel,
+          deviceId: devId,
+          origX: nodeModel.x,
+          origY: nodeModel.y,
+          startSvgX: pt.x,
+          startSvgY: pt.y,
+          startClientX: e.clientX,
+          startClientY: e.clientY,
+          moved: false,
+          connectedEdges
+        };
+      });
+
       el.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (this.suppressNextClick) return;
         const devId = el.dataset.deviceId;
         const loc = findDeviceLocation(store.state, devId);
         if (loc) {
@@ -659,5 +787,71 @@ export class TopologyRenderer {
         }
       });
     });
+  }
+
+  clientToSvgPoint(svgEl, clientX, clientY) {
+    const ctm = svgEl?.getScreenCTM?.();
+    if (!ctm) return { x: clientX, y: clientY };
+    const pt = svgEl.createSVGPoint();
+    pt.x = clientX;
+    pt.y = clientY;
+    return pt.matrixTransform(ctm.inverse());
+  }
+
+  handleDragMove(e) {
+    const ds = this.dragState;
+    if (!ds) return;
+
+    const dist = Math.hypot(e.clientX - ds.startClientX, e.clientY - ds.startClientY);
+    if (!ds.moved) {
+      if (dist < 4) return;
+      ds.moved = true;
+      document.body.classList.add('is-dragging-topo-node');
+      ds.svgEl.classList.add('topo-dragging');
+      ds.nodeEl.classList.add('is-dragging');
+      ds.nodeEl.parentNode?.appendChild(ds.nodeEl);
+    }
+
+    const pt = this.clientToSvgPoint(ds.svgEl, e.clientX, e.clientY);
+    const nextX = Math.max(16, Math.round(ds.origX + (pt.x - ds.startSvgX)));
+    const nextY = Math.max(16, Math.round(ds.origY + (pt.y - ds.startSvgY)));
+
+    ds.nodeModel.x = nextX;
+    ds.nodeModel.y = nextY;
+    ds.nodeEl.setAttribute('transform', `translate(${nextX - ds.origX}, ${nextY - ds.origY})`);
+
+    ds.connectedEdges.forEach(item => {
+      const geom = computeTopologyEdgeGeometry(item.edge.fromNode, item.edge.toNode, item.edge);
+      if (item.hitPath) item.hitPath.setAttribute('d', geom.d);
+      if (item.linePath) item.linePath.setAttribute('d', geom.d);
+      if (item.pillRect) {
+        item.pillRect.setAttribute('x', (geom.labelX - item.pillW / 2).toFixed(1));
+        item.pillRect.setAttribute('y', (geom.labelY - item.pillH / 2).toFixed(1));
+      }
+      if (item.pillText) {
+        item.pillText.setAttribute('x', geom.labelX.toFixed(1));
+        item.pillText.setAttribute('y', (geom.labelY + 3.5).toFixed(1));
+      }
+    });
+  }
+
+  handleDragEnd() {
+    const ds = this.dragState;
+    if (!ds) return;
+    this.dragState = null;
+
+    document.body.classList.remove('is-dragging-topo-node');
+    ds.svgEl?.classList.remove('topo-dragging');
+    ds.nodeEl?.classList.remove('is-dragging');
+
+    if (!ds.moved) return;
+
+    clearTimeout(this.suppressTimer);
+    this.suppressNextClick = true;
+    this.suppressTimer = setTimeout(() => {
+      this.suppressNextClick = false;
+    }, 60);
+
+    store.setTopologyNodePosition(this.getScopeKey(), ds.deviceId, ds.nodeModel.x, ds.nodeModel.y);
   }
 }

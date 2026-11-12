@@ -16,6 +16,7 @@ const RACK_ZOOM_MIN = 0.15;
 const RACK_ZOOM_MAX = 2.0;
 const RACK_ZOOM_STEP = 0.1;
 const RACK_ZOOM_STORAGE_KEY = 'rack_studio_zoom_v1';
+const RACK_THEME_STORAGE_KEY = 'rack_studio_theme_v1';
 
 window.openAddRackModal = () => (window.app ? window.app.openAddRackModal() : null);
 window.openEditRackModal = (id) => (window.app ? window.app.openEditRackModal(id) : null);
@@ -49,6 +50,7 @@ class App {
     this.rackZoomStage = document.getElementById('rack-zoom-stage');
     this.topologyViewport = document.getElementById('topology-viewport');
     this.rackZoom = this.loadZoomPreference();
+    this.theme = this.loadThemePreference();
     this.workspaceView = 'rack';
 
     this.cableRenderer = new CableRenderer(this.svgContainer, this.rackContainer);
@@ -72,12 +74,14 @@ class App {
     this.initGlobalWindowExposures();
     this.initEventListeners();
     this.initKeyboardShortcuts();
+    this.applyTheme(this.theme, { rerender: false });
     this.subscribeState();
 
     this.renderAll();
     this.applyRackZoom({ preserveScroll: false });
     this.updateRoutingModeUI();
     this.updateWorkspaceViewUI();
+    this.updateThemeUI();
     this.updateSyncBadge({ status: store.syncStatus, message: store.syncMessage });
   }
 
@@ -105,6 +109,8 @@ class App {
     window.setWorkspaceView = (view) => this.setWorkspaceView(view);
     window.openPrintModal = () => this.printPassport?.open();
     window.closePrintModal = () => this.printPassport?.close();
+    window.setAppTheme = (theme) => this.setTheme(theme);
+    window.toggleAppTheme = () => this.toggleTheme();
   }
 
   deleteRackConfirm(rackId) {
@@ -320,7 +326,11 @@ class App {
     document.getElementById('topo-zoom-out')?.addEventListener('click', () => this.topologyRenderer.stepZoom(-1));
     document.getElementById('topo-zoom-reset')?.addEventListener('click', () => this.topologyRenderer.setZoom(1));
     document.getElementById('topo-zoom-in')?.addEventListener('click', () => this.topologyRenderer.stepZoom(1));
+    document.getElementById('btn-topo-reset-layout')?.addEventListener('click', () => {
+      this.topologyRenderer.resetLayout();
+    });
     document.getElementById('topology-scroll-area')?.addEventListener('click', (e) => {
+      if (this.topologyRenderer?.isSuppressingClick?.()) return;
       if (e.target === e.currentTarget || e.target.id === 'topology-svg-stage' || e.target.id === 'topology-svg') {
         store.clearSelection();
       }
@@ -557,6 +567,8 @@ class App {
         this.renderDetailsDrawer();
         this.cableRenderer.render();
         if (this.workspaceView === 'topology') this.topologyRenderer.render();
+      } else if (event === 'topology_layout_updated') {
+        if (this.workspaceView === 'topology') this.topologyRenderer.render();
       } else if (event.startsWith('cable_') || event.startsWith('device_')) {
         this.renderWorkplaceFilterBadges();
         this.rackRenderer.render();
@@ -593,6 +605,88 @@ class App {
     this.syncRackZoomSizer();
     this.updateZoomUI();
     this.renderDetailsDrawer();
+  }
+
+  /** Restores saved UI color theme preference for this browser without touching project state. */
+  loadThemePreference() {
+    try {
+      const saved = localStorage.getItem(RACK_THEME_STORAGE_KEY);
+      if (saved === 'light' || saved === 'dark') {
+        return saved;
+      }
+    } catch {
+      // Ignore storage access restrictions
+    }
+    return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+  }
+
+  saveThemePreference(theme) {
+    try {
+      localStorage.setItem(RACK_THEME_STORAGE_KEY, theme);
+    } catch {
+      // Ignore storage access restrictions
+    }
+  }
+
+  isLightTheme() {
+    return this.theme === 'light';
+  }
+
+  applyTheme(theme, { rerender = true } = {}) {
+    const normalized = theme === 'light' ? 'light' : 'dark';
+    this.theme = normalized;
+    document.documentElement.dataset.theme = normalized;
+    document.documentElement.classList.toggle('dark', normalized === 'dark');
+    document.documentElement.style.colorScheme = normalized;
+    this.updateThemeUI();
+
+    if (rerender) {
+      this.rackRenderer?.render();
+      this.cableRenderer?.render();
+      this.topologyRenderer?.render();
+      this.renderWorkplaceFilterBadges();
+      this.renderDetailsDrawer();
+      this.updateWorkspaceViewUI();
+      this.updateRoutingModeUI();
+      this.updateTopologyToolbarUI();
+      this.updateZoomUI();
+      if (this.isModalOpen('print-modal')) {
+        this.printPassport?.refreshReport();
+      }
+    }
+  }
+
+  setTheme(theme) {
+    const normalized = theme === 'light' ? 'light' : 'dark';
+    if (normalized === this.theme && document.documentElement.dataset.theme === normalized) {
+      this.updateThemeUI();
+      return;
+    }
+    this.saveThemePreference(normalized);
+    this.applyTheme(normalized, { rerender: true });
+  }
+
+  toggleTheme() {
+    this.setTheme(this.theme === 'light' ? 'dark' : 'light');
+  }
+
+  updateThemeUI() {
+    const btn = document.getElementById('btn-toggle-theme');
+    const sun = document.getElementById('theme-icon-sun');
+    const moon = document.getElementById('theme-icon-moon');
+    const label = document.getElementById('theme-toggle-label');
+    const isLight = this.isLightTheme();
+
+    if (sun) sun.classList.toggle('hidden', !isLight);
+    if (moon) moon.classList.toggle('hidden', isLight);
+    if (label) label.textContent = isLight ? 'Светлая' : 'Тёмная';
+    if (btn) {
+      btn.setAttribute('aria-pressed', isLight ? 'true' : 'false');
+      btn.setAttribute(
+        'title',
+        isLight ? 'Светлая тема активна (нажмите для тёмной)' : 'Тёмная тема активна (нажмите для светлой)'
+      );
+    }
   }
 
   /** Restores saved viewport zoom factor for this browser without touching project state. */

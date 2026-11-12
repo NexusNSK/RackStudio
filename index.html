@@ -27,6 +27,20 @@
 
   <!-- Custom CSS -->
   <link rel="stylesheet" href="css/style.css">
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('rack_studio_theme_v1');
+        var theme = saved === 'light' ? 'light' : 'dark';
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.classList.toggle('dark', theme === 'dark');
+        document.documentElement.style.colorScheme = theme;
+      } catch (e) {
+        document.documentElement.dataset.theme = 'dark';
+        document.documentElement.classList.add('dark');
+      }
+    })();
+  </script>
 </head>
 <body class="bg-[#0a0c10] text-slate-100 h-screen overflow-hidden flex flex-col bg-grid-pattern select-none">
 
@@ -81,6 +95,16 @@
       </button>
 
       <div class="h-4 w-px bg-slate-800 mx-1"></div>
+
+      <button id="btn-toggle-theme" type="button" onclick="window.toggleAppTheme()" aria-pressed="false" title="Тёмная тема активна (нажмите для светлой)" class="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700/80 transition">
+        <svg id="theme-icon-sun" class="w-3.5 h-3.5 hidden text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m8.66-10h-1M4.34 12h-1m15.02 6.36l-.7-.7M6.34 6.34l-.7-.7m12.72 0l-.7.7M6.34 17.66l-.7.7M12 8a4 4 0 100 8 4 4 0 000-8z"></path>
+        </svg>
+        <svg id="theme-icon-moon" class="w-3.5 h-3.5 text-cyan-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z"></path>
+        </svg>
+        <span id="theme-toggle-label">Тёмная</span>
+      </button>
 
       <!-- Export / Import -->
       <button id="btn-export-pdf" onclick="window.openPrintModal()" class="px-2.5 py-1.5 bg-slate-800/80 hover:bg-slate-700 text-cyan-300 rounded-lg text-xs font-medium border border-slate-700/80 transition flex items-center gap-1" title="Паспорт стойки и экспорт в PDF">
@@ -225,8 +249,14 @@
           </label>
         </div>
 
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2.5 flex-wrap">
           <div id="topology-health-summary" class="flex items-center gap-2"></div>
+          <button id="btn-topo-reset-layout" type="button" disabled title="Вернуть автоматическую раскладку узлов" class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+            </svg>
+            <span>Авто-раскладка</span>
+          </button>
           <div class="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800 text-xs">
             <button id="topo-zoom-out" type="button" class="px-2 py-0.5 rounded-md font-mono font-bold text-slate-400 hover:text-white hover:bg-slate-800">-</button>
             <button id="topo-zoom-reset" type="button" class="px-2 py-0.5 rounded-md text-[11px] font-mono font-semibold text-slate-200 hover:text-cyan-300 min-w-[46px] text-center">100%</button>
