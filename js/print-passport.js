@@ -79,6 +79,34 @@ export class PrintPassport {
     this.modal.style.display = 'none';
   }
 
+  stripSnapshotInteractivity(rootEl) {
+    if (!rootEl) return;
+    // Remove UI action buttons that belong to the live editor, not a printable diagram
+    rootEl.querySelectorAll(
+      'button[onclick*="openEditRackModal"], button[onclick*="deleteRackConfirm"], .slot-empty button'
+    ).forEach(btn => btn.remove());
+
+    const headerDivider = rootEl.querySelector('.rack-cabinet .w-px');
+    if (headerDivider) headerDivider.remove();
+
+    const stripNodeAttrs = (node) => {
+      Array.from(node.attributes || []).forEach(attr => {
+        if (attr.name.toLowerCase().startsWith('on') || attr.name === 'draggable' || attr.name === 'tabindex') {
+          node.removeAttribute(attr.name);
+        }
+      });
+      if (node.classList) {
+        node.classList.remove('cursor-grab', 'cursor-pointer', 'hover:brightness-105', 'group');
+      }
+      if (node.style && node.style.cursor) {
+        node.style.cursor = 'default';
+      }
+    };
+
+    stripNodeAttrs(rootEl);
+    rootEl.querySelectorAll('*').forEach(stripNodeAttrs);
+  }
+
   captureRackSnapshotMarkup() {
     if (typeof this.onEnsureRackRendered === 'function') {
       this.onEnsureRackRendered();
@@ -86,32 +114,71 @@ export class PrintPassport {
     const stage = document.getElementById('rack-zoom-stage');
     if (!stage) return '';
 
-    const clone = stage.cloneNode(true);
-    clone.removeAttribute('id');
-    clone.style.transform = '';
-    clone.style.width = '760px';
-    clone.style.paddingBottom = '16px';
-
     const stageW = stage.offsetWidth || 760;
     const stageH = stage.offsetHeight || 600;
+
+    // Measure full SVG cable extents (including side channels & inter-rack badges outside [0..stageW])
+    let extraLeft = 0;
+    let extraRight = 0;
+    let extraTop = 0;
+    let extraBottom = 0;
+    const liveCablesLayer = document.getElementById('cables-layer');
+    if (liveCablesLayer && liveCablesLayer.childElementCount > 0) {
+      try {
+        const bbox = liveCablesLayer.getBBox();
+        const pad = 16;
+        if (Number.isFinite(bbox.x) && Number.isFinite(bbox.width)) {
+          extraLeft = Math.max(0, Math.ceil(-(bbox.x - pad)));
+          extraRight = Math.max(0, Math.ceil((bbox.x + bbox.width + pad) - stageW));
+          extraTop = Math.max(0, Math.ceil(-(bbox.y - pad)));
+          extraBottom = Math.max(0, Math.ceil((bbox.y + bbox.height + pad) - stageH));
+        }
+      } catch {
+        // Fallback padding if SVG is not measurable
+        extraLeft = 48;
+        extraRight = 48;
+      }
+    }
+
+    const totalW = stageW + extraLeft + extraRight;
+    const totalH = stageH + extraTop + extraBottom;
+
+    const clone = stage.cloneNode(true);
+    this.stripSnapshotInteractivity(clone);
+
+    const clonedRack = clone.querySelector('#rack-container');
+    if (clonedRack) {
+      clonedRack.style.position = 'relative';
+      clonedRack.style.left = `${extraLeft}px`;
+      clonedRack.style.top = `${extraTop}px`;
+      clonedRack.style.width = `${stageW}px`;
+    }
+
     const clonedSvg = clone.querySelector('#cables-svg');
     if (clonedSvg) {
       clonedSvg.removeAttribute('id');
-      clonedSvg.setAttribute('viewBox', `0 0 ${stageW} ${stageH}`);
-      clonedSvg.setAttribute('width', String(stageW));
-      clonedSvg.setAttribute('height', String(stageH));
+      clonedSvg.setAttribute('viewBox', `${-extraLeft} ${-extraTop} ${totalW} ${totalH}`);
+      clonedSvg.setAttribute('width', String(totalW));
+      clonedSvg.setAttribute('height', String(totalH));
+      clonedSvg.setAttribute('class', 'pointer-events-none z-30 overflow-visible');
+      clonedSvg.style.position = 'absolute';
+      clonedSvg.style.left = '0';
+      clonedSvg.style.top = '0';
+      clonedSvg.style.width = `${totalW}px`;
+      clonedSvg.style.height = `${totalH}px`;
+      clonedSvg.style.pointerEvents = 'none';
     }
     clone.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
 
-    // Scale cleanly to ~660px printable width while keeping exact SVG alignment
-    const fitScale = 660 / stageW;
-    const scaledH = Math.round(stageH * fitScale);
+    // Scale cleanly to ~660px printable width while preserving full side channels & sub-pixel alignment
+    const fitScale = 660 / totalW;
+    const scaledH = Math.round(totalH * fitScale);
     const isLight = document.documentElement.dataset.theme === 'light';
     const wrapBg = isLight ? '#f1f5f9; border: 1px solid #cbd5e1' : '#0f1115';
 
     return `
-      <div class="print-rack-wrap" style="width: 660px; height: ${scaledH}px; overflow: hidden; margin: 0 auto; border-radius: 10px; background: ${wrapBg}; padding: 6px; box-sizing: content-box;">
-        <div style="position: relative; width: ${stageW}px; height: ${stageH}px; transform: scale(${fitScale.toFixed(4)}); transform-origin: top left;">
+      <div class="print-rack-wrap" inert style="width: 660px; height: ${scaledH}px; overflow: hidden; margin: 0 auto; border-radius: 10px; background: ${wrapBg}; padding: 6px; box-sizing: content-box; pointer-events: none; user-select: none;">
+        <div style="position: relative; width: ${totalW}px; height: ${totalH}px; transform: scale(${fitScale.toFixed(4)}); transform-origin: top left; pointer-events: none;">
           ${clone.innerHTML}
         </div>
       </div>

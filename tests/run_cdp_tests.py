@@ -8,6 +8,7 @@ import asyncio
 import base64
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -21,7 +22,12 @@ if hasattr(sys.stderr, 'reconfigure'):
 
 EDGE_PATH = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 TEST_URL = "http://localhost:8080/index.html"
-PORT = 9222
+def find_free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+PORT = find_free_port()
 USER_DATA_DIR = os.path.join(os.path.dirname(__file__), ".cdp_test_profile")
 
 class CDPClient:
@@ -1446,6 +1452,47 @@ async def run_test_suite():
                 const svg = document.getElementById('topology-svg');
                 const nodes = Array.from(document.querySelectorAll('#topology-svg .topo-node'));
                 const edges = Array.from(document.querySelectorAll('#topology-svg .topo-edge'));
+                const badges = Array.from(document.querySelectorAll('#topology-svg #topo-edge-labels-layer .topo-edge-badge'));
+                const layers = Array.from(svg?.children || []).map(el => el.id);
+                const layerOrderOk = layers.indexOf('topo-edges-layer') < layers.indexOf('topo-nodes-layer') &&
+                                     layers.indexOf('topo-nodes-layer') < layers.indexOf('topo-edge-labels-layer');
+                const pillBoxes = badges.map(b => {
+                    const r = b.querySelector('.topo-edge-pill');
+                    return {
+                        x: parseFloat(r?.getAttribute('x') || '0'),
+                        y: parseFloat(r?.getAttribute('y') || '0'),
+                        w: parseFloat(r?.getAttribute('width') || '0'),
+                        h: parseFloat(r?.getAttribute('height') || '0'),
+                        text: b.querySelector('.topo-edge-label')?.textContent || ''
+                    };
+                });
+                let pillOverlaps = 0;
+                for (let i = 0; i < pillBoxes.length; i++) {
+                    for (let j = i + 1; j < pillBoxes.length; j++) {
+                        const a = pillBoxes[i], b = pillBoxes[j];
+                        const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+                        const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+                        if (ox > 0 && oy > 0) pillOverlaps++;
+                    }
+                }
+                const nodeBoxes = nodes.map(n => {
+                    const r = n.querySelector('rect');
+                    return {
+                        x: parseFloat(r?.getAttribute('x') || '0'),
+                        y: parseFloat(r?.getAttribute('y') || '0'),
+                        w: parseFloat(r?.getAttribute('width') || '0'),
+                        h: parseFloat(r?.getAttribute('height') || '0')
+                    };
+                });
+                let pillNodeOverlaps = 0;
+                for (const pb of pillBoxes) {
+                    for (const nb of nodeBoxes) {
+                        const ox = Math.min(pb.x + pb.w, nb.x + nb.w) - Math.max(pb.x, nb.x);
+                        const oy = Math.min(pb.y + pb.h, nb.y + nb.h) - Math.max(pb.y, nb.y);
+                        if (ox > 0 && oy > 0) pillNodeOverlaps++;
+                    }
+                }
+                const noLengthInPills = pillBoxes.length > 0 && pillBoxes.every(pb => !/\\d+(?:\\.\\d+)?м\\b/.test(pb.text));
                 const hasBundle3 = edges.some(e => e.textContent.includes('×3'));
                 const hasLag = edges.some(e => e.textContent.includes('(LAG)'));
                 // Verify Gateway (router) sits physically above Switch, and Switch above Patch Panel
@@ -1454,9 +1501,15 @@ async def run_test_suite():
                 const gwY = parseFloat(gwNode?.querySelector('rect')?.getAttribute('y') || '9999');
                 const ppY = parseFloat(ppNode?.querySelector('rect')?.getAttribute('y') || '0');
                 return {
-                    ok: rackHidden && topoVisible && Boolean(svg) && hasBundle3 && hasLag && gwY < ppY,
+                    ok: rackHidden && topoVisible && Boolean(svg) && hasBundle3 && hasLag && gwY < ppY &&
+                        layerOrderOk && noLengthInPills && pillOverlaps === 0 && pillNodeOverlaps === 0,
                     nodes: nodes.length,
                     edges: edges.length,
+                    badges: badges.length,
+                    layerOrderOk,
+                    noLengthInPills,
+                    pillOverlaps,
+                    pillNodeOverlaps,
                     hasBundle3,
                     hasLag,
                     gwY,
@@ -1489,7 +1542,34 @@ async def run_test_suite():
             })()
         """)
         await asyncio.sleep(0.2)
-        edges_unbundled_count = await client.eval("document.querySelectorAll('#topology-svg .topo-edge').length")
+        unbundled_check = await client.eval("""
+            (() => {
+                const edges = document.querySelectorAll('#topology-svg .topo-edge');
+                const badges = Array.from(document.querySelectorAll('#topology-svg #topo-edge-labels-layer .topo-edge-badge'));
+                const pillBoxes = badges.map(b => {
+                    const r = b.querySelector('.topo-edge-pill');
+                    return {
+                        x: parseFloat(r?.getAttribute('x') || '0'),
+                        y: parseFloat(r?.getAttribute('y') || '0'),
+                        w: parseFloat(r?.getAttribute('width') || '0'),
+                        h: parseFloat(r?.getAttribute('height') || '0'),
+                        text: b.querySelector('.topo-edge-label')?.textContent || ''
+                    };
+                });
+                let pillOverlaps = 0;
+                for (let i = 0; i < pillBoxes.length; i++) {
+                    for (let j = i + 1; j < pillBoxes.length; j++) {
+                        const a = pillBoxes[i], b = pillBoxes[j];
+                        const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+                        const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+                        if (ox > 0 && oy > 0) pillOverlaps++;
+                    }
+                }
+                const noLength = pillBoxes.length > 0 && pillBoxes.every(pb => !/\\d+(?:\\.\\d+)?м\\b/.test(pb.text));
+                return { count: edges.length, pillOverlaps, noLength };
+            })()
+        """)
+        edges_unbundled_count = unbundled_check["count"]
         await client.eval("""
             (() => {
                 const chk = document.getElementById('topo-toggle-bundle');
@@ -1512,7 +1592,7 @@ async def run_test_suite():
             !document.getElementById('details-drawer').classList.contains('translate-x-full') &&
             document.getElementById('details-content').textContent.includes('Пучок кабелей')
         """)
-        record("Unbundling expands aggregated edges cleanly", edges_unbundled_count > edges_bundled_count, f"bundled={edges_bundled_count}, expanded={edges_unbundled_count}")
+        record("Unbundling expands aggregated edges cleanly without label overlaps or cable lengths", edges_unbundled_count > edges_bundled_count and unbundled_check["pillOverlaps"] == 0 and unbundled_check["noLength"], str(unbundled_check))
         record("Clicking aggregated bundle opens Bundle Inspector in Drawer", bool(bundle_drawer_ok))
 
         # Test group filter dims non-matching edges in Topology
@@ -1670,6 +1750,8 @@ async def run_test_suite():
         # TEST 15: Rack Passport & Print / PDF Export (Block F.1)
         # -------------------------------------------------------------
         print("\n--- Test Suite 15: Rack Passport & PDF Print Export ---")
+        # Enable channel routing mode first to test full unclipped left/right channels in Passport
+        await client.eval("window.store.setCableRoutingMode('channels')")
         await client.eval("document.getElementById('btn-export-pdf').click()")
         await asyncio.sleep(0.35)
 
@@ -1682,13 +1764,36 @@ async def run_test_suite():
                 const hasRackSvg = Boolean(preview?.querySelector('.print-rack-wrap svg .cable-group'));
                 const hasTopoSvg = Boolean(preview?.querySelector('#print-topology-svg'));
                 const hasPortName = txt.includes('XG1');
+                const wrap = preview?.querySelector('.print-rack-wrap');
+                const rackSvg = wrap?.querySelector('svg');
+                const vb = (rackSvg?.getAttribute('viewBox') || '').split(/\\s+/).map(Number);
+                const cablesGroup = rackSvg?.querySelector('g');
+                const cBox = cablesGroup?.getBBox ? cablesGroup.getBBox() : null;
+                const wrapCs = wrap ? getComputedStyle(wrap) : null;
+                const interactiveControls = wrap ? wrap.querySelectorAll('button, [onclick], [draggable="true"]').length : -1;
+                const channelsEnclosed = Boolean(
+                    vb.length === 4 &&
+                    cBox &&
+                    vb[0] < 0 &&
+                    vb[2] > 760 &&
+                    cBox.x >= vb[0] &&
+                    cBox.x + cBox.width <= vb[0] + vb[2] &&
+                    cBox.y >= vb[1] &&
+                    cBox.y + cBox.height <= vb[1] + vb[3]
+                );
                 return {
                     open: modal && !modal.classList.contains('hidden'),
                     hasSummary: txt.includes('Паспорт монтажного шкафа'),
                     hasRackSvg,
                     hasTopoSvg,
                     hasPortName,
-                    syncedRoot: Boolean(root && root.innerHTML.length > 500)
+                    syncedRoot: Boolean(root && root.innerHTML.length > 500),
+                    hasInert: Boolean(wrap && wrap.hasAttribute('inert')),
+                    pointerNone: wrapCs?.pointerEvents === 'none',
+                    interactiveControls,
+                    channelsEnclosed,
+                    vb,
+                    cBox: cBox ? { x: Math.round(cBox.x), y: Math.round(cBox.y), w: Math.round(cBox.width), h: Math.round(cBox.height) } : null
                 };
             })()
         """)
@@ -1696,6 +1801,23 @@ async def run_test_suite():
             print_modal_ok and print_modal_ok["open"] and print_modal_ok["hasSummary"] and
             print_modal_ok["hasRackSvg"] and print_modal_ok["hasTopoSvg"] and
             print_modal_ok["hasPortName"] and print_modal_ok["syncedRoot"]
+        ), str(print_modal_ok))
+        # Verify snapshot is non-interactive and encloses all side-channel cables completely
+        await client.eval("""
+            (() => {
+                window.store.clearSelection();
+                const wrap = document.querySelector('#print-preview-container .print-rack-wrap');
+                const dev = wrap?.querySelector('.installed-device');
+                const cab = wrap?.querySelector('.cable-group');
+                dev?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                cab?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            })()
+        """)
+        await asyncio.sleep(0.1)
+        snap_sel = await client.eval("window.store.selectedEntity")
+        record("Print Passport rack snapshot encloses channel cables without clipping and is non-interactive", bool(
+            print_modal_ok and print_modal_ok["hasInert"] and print_modal_ok["pointerNone"] and
+            print_modal_ok["interactiveControls"] == 0 and print_modal_ok["channelsEnclosed"] and snap_sel is None
         ), str(print_modal_ok))
 
         # Toggle options: disable cable table & enable CLI configs
@@ -1807,7 +1929,7 @@ async def run_test_suite():
         light_topo_ok = await client.eval("""
             (() => {
                 const svg = document.getElementById('topology-svg');
-                const bgRect = svg?.querySelector('rect');
+                const bgRect = svg?.querySelector('.topo-edge-pill');
                 const texts = Array.from(svg?.querySelectorAll('text') || []);
                 return {
                     hasSvg: !!svg,

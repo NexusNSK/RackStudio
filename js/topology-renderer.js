@@ -13,12 +13,43 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+function evalCubicBezier(geom, t) {
+  const mt = 1 - t;
+  const mt2 = mt * mt;
+  const t2 = t * t;
+  const a = mt2 * mt;
+  const b = 3 * mt2 * t;
+  const c = 3 * mt * t2;
+  const d = t2 * t;
+  return {
+    x: a * geom.x1 + b * geom.cx1 + c * geom.cx2 + d * geom.x2,
+    y: a * geom.y1 + b * geom.cy1 + c * geom.cy2 + d * geom.y2
+  };
+}
+
+function rectsOverlapArea(r1, r2, pad = 0) {
+  const ox = Math.min(r1.x + r1.w + pad, r2.x + r2.w) - Math.max(r1.x - pad, r2.x);
+  if (ox <= 0) return 0;
+  const oy = Math.min(r1.y + r1.h + pad, r2.y + r2.h) - Math.max(r1.y - pad, r2.y);
+  if (oy <= 0) return 0;
+  return ox * oy;
+}
+
+function pointNearRect(px, py, rect, pad = 4) {
+  return (
+    px >= rect.x - pad &&
+    px <= rect.x + rect.w + pad &&
+    py >= rect.y - pad &&
+    py <= rect.y + rect.h + pad
+  );
+}
+
 /**
- * Computes SVG Bezier path and pill label coordinates between two topology nodes.
+ * Computes SVG Bezier path and control points between two topology nodes.
  * Uses live node rectangles so edges adapt naturally regardless of manual dragging.
  */
 function computeTopologyEdgeGeometry(a, b, edge) {
-  const offsetShift = ((edge.parallelIndex || 0) - ((edge.parallelTotal || 1) - 1) / 2) * 26;
+  const offsetShift = ((edge.parallelIndex || 0) - ((edge.parallelTotal || 1) - 1) / 2) * 28;
   const cyA = a.y + a.h / 2;
   const cyB = b.y + b.h / 2;
   const upper = cyA <= cyB ? a : b;
@@ -58,7 +89,7 @@ function computeTopologyEdgeGeometry(a, b, edge) {
       x2 = right.x + right.w / 2;
       y2 = right.y;
       const minTop = Math.min(y1, y2);
-      const arcLift = 38 + Math.abs((edge.parallelIndex || 0) + 1) * 18;
+      const arcLift = 38 + Math.abs((edge.parallelIndex || 0) + 1) * 20;
       cx1 = x1;
       cy1 = minTop - arcLift;
       cx2 = x2;
@@ -66,11 +97,127 @@ function computeTopologyEdgeGeometry(a, b, edge) {
     }
   }
 
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len;
+  const ny = dx / len;
+
   return {
     d: `M ${x1.toFixed(1)},${y1.toFixed(1)} C ${cx1.toFixed(1)},${cy1.toFixed(1)} ${cx2.toFixed(1)},${cy2.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`,
+    x1,
+    y1,
+    cx1,
+    cy1,
+    cx2,
+    cy2,
+    x2,
+    y2,
+    nx,
+    ny,
+    spanLen: len,
     labelX: 0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2,
     labelY: 0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2
   };
+}
+
+/**
+ * Finds collision-free pill coordinates along each edge's Bezier curve.
+ * Avoids pill-to-pill overlap, pill-to-node overlap, and unnecessary crossing lines.
+ */
+function resolveTopologyEdgeLabels(preparedEdges, nodeBoxes, canvasWidth = 1200) {
+  if (!preparedEdges.length) return;
+
+  const tSteps = [0.16, 0.25, 0.35, 0.45, 0.5, 0.55, 0.65, 0.75, 0.84];
+  const sampledCurves = preparedEdges.map(item =>
+    tSteps.map(t => evalCubicBezier(item.geom, t))
+  );
+
+  // Place shorter edges first so tight spans keep center positions while long spans slide easily
+  const order = preparedEdges
+    .map((item, idx) => ({ idx, span: item.geom.spanLen }))
+    .sort((a, b) => a.span - b.span)
+    .map(entry => entry.idx);
+
+  const placedPills = [];
+  const tCandidates = [0.5, 0.4, 0.6, 0.3, 0.7, 0.22, 0.78];
+  const normalOffsets = [0, 22, -22, 34, -34, 46, -46];
+
+  order.forEach(idx => {
+    const item = preparedEdges[idx];
+    const { geom, pillW, pillH } = item;
+
+    let bestScore = Infinity;
+    let bestX = geom.labelX;
+    let bestY = geom.labelY;
+
+    for (const off of normalOffsets) {
+      for (const t of tCandidates) {
+        if (Math.abs(off) > 0 && (t < 0.3 || t > 0.7)) continue;
+
+        const pt = evalCubicBezier(geom, t);
+        const cx = pt.x + geom.nx * off;
+        const cy = pt.y + geom.ny * off;
+        const box = {
+          x: cx - pillW / 2,
+          y: cy - pillH / 2,
+          w: pillW,
+          h: pillH
+        };
+
+        let score = Math.abs(t - 0.5) * 45 + Math.abs(off) * 0.75;
+
+        // Strong priority: never overlap another already-placed edge pill
+        for (const placed of placedPills) {
+          const ov = rectsOverlapArea(box, placed, 4);
+          if (ov > 0) {
+            score += 50000 + ov * 120;
+          }
+        }
+
+        // High penalty: never cover a device card
+        for (const node of nodeBoxes) {
+          const ov = rectsOverlapArea(box, node, 4);
+          if (ov > 0) {
+            score += 4000 + ov * 15;
+          }
+        }
+
+        // Moderate penalty: avoid sitting directly over another edge curve
+        for (let j = 0; j < sampledCurves.length; j++) {
+          if (j === idx) continue;
+          const pts = sampledCurves[j];
+          for (let k = 0; k < pts.length; k++) {
+            if (pointNearRect(pts[k].x, pts[k].y, box, 4)) {
+              score += 280;
+              break;
+            }
+          }
+        }
+
+        // Keep pill inside visible horizontal bounds when possible
+        if (box.x < 6) score += 600 + (6 - box.x) * 20;
+        if (box.x + box.w > canvasWidth - 6) score += 600 + (box.x + box.w - (canvasWidth - 6)) * 20;
+
+        if (score < bestScore) {
+          bestScore = score;
+          bestX = cx;
+          bestY = cy;
+          if (score < 12) break;
+        }
+      }
+      if (bestScore < 12) break;
+    }
+
+    item.labelX = bestX;
+    item.labelY = bestY;
+    placedPills.push({
+      x: bestX - pillW / 2,
+      y: bestY - pillH / 2,
+      w: pillW,
+      h: pillH
+    });
+  });
 }
 
 function getCategoryMeta(category, vendor = '') {
@@ -533,25 +680,23 @@ export class TopologyRenderer {
     const badgeFill = isLight ? '#ffffff' : '#0f172a';
     const pillTextColor = isLight ? '#0f172a' : '#e2e8f0';
 
-    const edgesMarkup = model.edges.map(edge => {
+    const preparedEdges = [];
+    model.edges.forEach(edge => {
       const a = edge.fromNode;
       const b = edge.toNode;
+      const isFilterMatch = activeFilter === 'ALL' || edge.groupId === activeFilter;
+      if (!isFilterMatch && !dimInactive) {
+        return;
+      }
 
-      const { d, labelX, labelY } = computeTopologyEdgeGeometry(a, b, edge);
-
+      const geom = computeTopologyEdgeGeometry(a, b, edge);
       const isSingle = edge.cables.length === 1;
       const primaryCable = edge.cables[0];
-      const isFilterMatch = activeFilter === 'ALL' || edge.groupId === activeFilter;
-
       const isEdgeSelected = interactive && (
         (selectedEntity?.type === 'cable' && edge.cables.some(c => c.id === selectedEntity.id)) ||
         (selectedEntity?.type === 'cable_bundle' && selectedEntity.bundleKey === edge.key) ||
         (selectedEntity?.type === 'device' && (a.id === selectedEntity.id || b.id === selectedEntity.id))
       );
-
-      if (!isFilterMatch && !dimInactive) {
-        return '';
-      }
 
       const opacity = isFilterMatch ? (isEdgeSelected ? 1 : 0.92) : 0.14;
       const strokeW = isSingle ? (isEdgeSelected ? 3.5 : 2.2) : Math.min(6, 2.4 + Math.log2(edge.cables.length) * 1.4);
@@ -562,32 +707,75 @@ export class TopologyRenderer {
         const pTo = getPortDisplayName(findDeviceLocation(store.state, primaryCable.to.deviceId)?.template, primaryCable.to.portId);
         const shortFrom = pFrom.replace(/^Port\s+/i, 'P');
         const shortTo = pTo.replace(/^Port\s+/i, 'P');
-        labelText = `${shortFrom} ⇄ ${shortTo} · ${primaryCable.lengthM}м`;
+        labelText = `${shortFrom} ⇄ ${shortTo}`;
       } else {
         const grpTitle = edge.group ? `VLAN ${edge.group.vlan}` : (primaryCable.type || 'Линки');
         labelText = `${grpTitle} · ×${edge.cables.length}`;
       }
 
       if (edge.isLoopRisk) {
-        labelText += ' ⚠ STP';
+        labelText += ' [STP]';
       } else if (edge.isL2Trunk) {
         labelText += ' (LAG)';
       }
 
-      const pillW = Math.max(66, labelText.length * 6.0 + 16);
+      const pillW = Math.max(54, labelText.length * 5.9 + 14);
       const pillH = 20;
 
+      preparedEdges.push({
+        edge,
+        geom,
+        opacity,
+        strokeW,
+        isEdgeSelected,
+        labelText,
+        pillW,
+        pillH,
+        labelX: geom.labelX,
+        labelY: geom.labelY
+      });
+    });
+
+    const nodeBoxes = model.nodes.map(n => ({ x: n.x, y: n.y, w: n.w, h: n.h }));
+    resolveTopologyEdgeLabels(preparedEdges, nodeBoxes, model.canvasWidth);
+    model.renderedEdges = preparedEdges;
+
+    // Expand SVG viewBox if top same-row arches or nudged pills rise above y=0
+    let minViewY = 0;
+    preparedEdges.forEach(item => {
+      minViewY = Math.min(minViewY, item.labelY - item.pillH / 2 - 8);
+      for (const t of [0.25, 0.5, 0.75]) {
+        const pt = evalCubicBezier(item.geom, t);
+        minViewY = Math.min(minViewY, pt.y - 8);
+      }
+    });
+    minViewY = Math.floor(minViewY);
+
+    const edgesMarkup = preparedEdges.map(item => {
+      const { edge, geom, opacity, strokeW, isEdgeSelected, labelText } = item;
       return `
         <g class="topo-edge ${interactive ? 'cursor-pointer' : ''}"
            opacity="${opacity}"
            data-bundle-key="${escapeHtml(edge.key)}"
            data-cable-ids="${escapeHtml(edge.cables.map(c => c.id).join(','))}">
-          <path class="topo-edge-hit" d="${d}" fill="none" stroke="transparent" stroke-width="14"/>
-          <path class="topo-edge-line" d="${d}" fill="none"
+          <desc>${escapeHtml(labelText)}</desc>
+          <path class="topo-edge-hit" d="${geom.d}" fill="none" stroke="transparent" stroke-width="14"/>
+          <path class="topo-edge-line" d="${geom.d}" fill="none"
                 stroke="${isEdgeSelected ? (isLight ? '#0f172a' : '#ffffff') : edge.color}"
                 stroke-width="${strokeW + (isEdgeSelected ? 2 : 0)}"
                 ${edge.isInterRack ? 'stroke-dasharray="7 4"' : ''}
                 stroke-linecap="round"/>
+        </g>
+      `;
+    }).join('');
+
+    const edgeLabelsMarkup = preparedEdges.map(item => {
+      const { edge, opacity, isEdgeSelected, labelText, pillW, pillH, labelX, labelY } = item;
+      return `
+        <g class="topo-edge-badge ${interactive ? 'cursor-pointer' : ''}"
+           opacity="${opacity}"
+           data-bundle-key="${escapeHtml(edge.key)}"
+           data-cable-ids="${escapeHtml(edge.cables.map(c => c.id).join(','))}">
           <rect class="topo-edge-pill"
                 x="${(labelX - pillW / 2).toFixed(1)}"
                 y="${(labelY - pillH / 2).toFixed(1)}"
@@ -649,15 +837,17 @@ export class TopologyRenderer {
       `;
     }).join('');
 
+    const totalViewH = model.canvasHeight - minViewY;
     return `
       <svg id="${interactive ? 'topology-svg' : 'print-topology-svg'}"
-           viewBox="0 0 ${model.canvasWidth} ${model.canvasHeight}"
+           viewBox="0 ${minViewY} ${model.canvasWidth} ${totalViewH}"
            width="${model.canvasWidth}"
-           height="${model.canvasHeight}"
+           height="${totalViewH}"
            style="background:${bgFill}; max-width:100%; height:auto;"
            xmlns="http://www.w3.org/2000/svg">
         <g id="topo-edges-layer">${edgesMarkup}</g>
         <g id="topo-nodes-layer">${nodesMarkup}</g>
+        <g id="topo-edge-labels-layer">${edgeLabelsMarkup}</g>
       </svg>
     `;
   }
@@ -703,9 +893,26 @@ export class TopologyRenderer {
     // Node drag & click handlers
     const svgEl = svgContainer.querySelector('#topology-svg');
     const edgeElMap = new Map();
+    const badgeElMap = new Map();
     svgContainer.querySelectorAll('.topo-edge').forEach(el => {
       const key = el.dataset.bundleKey;
       if (key) edgeElMap.set(key, el);
+    });
+    svgContainer.querySelectorAll('.topo-edge-badge').forEach(el => {
+      const key = el.dataset.bundleKey;
+      if (key) badgeElMap.set(key, el);
+    });
+
+    const renderedEdgeItems = (model.renderedEdges || []).map(item => {
+      const edgeG = edgeElMap.get(item.edge.key);
+      const badgeG = badgeElMap.get(item.edge.key);
+      return {
+        item,
+        hitPath: edgeG?.querySelector('.topo-edge-hit') || null,
+        linePath: edgeG?.querySelector('.topo-edge-line') || null,
+        pillRect: badgeG?.querySelector('.topo-edge-pill') || null,
+        pillText: badgeG?.querySelector('.topo-edge-label') || null
+      };
     });
 
     svgContainer.querySelectorAll('.topo-node').forEach(el => {
@@ -717,23 +924,6 @@ export class TopologyRenderer {
         if (!nodeModel) return;
 
         const pt = this.clientToSvgPoint(svgEl, e.clientX, e.clientY);
-        const connectedEdges = model.edges
-          .filter(ed => ed.fromNode.id === devId || ed.toNode.id === devId)
-          .map(ed => {
-            const edgeG = edgeElMap.get(ed.key);
-            if (!edgeG) return null;
-            const pillRect = edgeG.querySelector('.topo-edge-pill');
-            return {
-              edge: ed,
-              hitPath: edgeG.querySelector('.topo-edge-hit'),
-              linePath: edgeG.querySelector('.topo-edge-line'),
-              pillRect,
-              pillText: edgeG.querySelector('.topo-edge-label'),
-              pillW: parseFloat(pillRect?.getAttribute('width') || '80'),
-              pillH: parseFloat(pillRect?.getAttribute('height') || '20')
-            };
-          })
-          .filter(Boolean);
 
         this.dragState = {
           svgEl,
@@ -747,7 +937,8 @@ export class TopologyRenderer {
           startClientX: e.clientX,
           startClientY: e.clientY,
           moved: false,
-          connectedEdges
+          model,
+          renderedEdgeItems
         };
       });
 
@@ -762,8 +953,8 @@ export class TopologyRenderer {
       });
     });
 
-    // Edge click -> select single cable or inspect bundle
-    svgContainer.querySelectorAll('.topo-edge').forEach(el => {
+    // Edge or pill badge click -> select single cable or inspect bundle
+    svgContainer.querySelectorAll('.topo-edge, .topo-edge-badge').forEach(el => {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         const cableIds = (el.dataset.cableIds || '').split(',').filter(Boolean);
@@ -820,17 +1011,30 @@ export class TopologyRenderer {
     ds.nodeModel.y = nextY;
     ds.nodeEl.setAttribute('transform', `translate(${nextX - ds.origX}, ${nextY - ds.origY})`);
 
-    ds.connectedEdges.forEach(item => {
-      const geom = computeTopologyEdgeGeometry(item.edge.fromNode, item.edge.toNode, item.edge);
-      if (item.hitPath) item.hitPath.setAttribute('d', geom.d);
-      if (item.linePath) item.linePath.setAttribute('d', geom.d);
-      if (item.pillRect) {
-        item.pillRect.setAttribute('x', (geom.labelX - item.pillW / 2).toFixed(1));
-        item.pillRect.setAttribute('y', (geom.labelY - item.pillH / 2).toFixed(1));
+    ds.renderedEdgeItems.forEach(entry => {
+      if (entry.item.edge.fromNode.id === ds.deviceId || entry.item.edge.toNode.id === ds.deviceId) {
+        entry.item.geom = computeTopologyEdgeGeometry(entry.item.edge.fromNode, entry.item.edge.toNode, entry.item.edge);
+        if (entry.hitPath) entry.hitPath.setAttribute('d', entry.item.geom.d);
+        if (entry.linePath) entry.linePath.setAttribute('d', entry.item.geom.d);
       }
-      if (item.pillText) {
-        item.pillText.setAttribute('x', geom.labelX.toFixed(1));
-        item.pillText.setAttribute('y', (geom.labelY + 3.5).toFixed(1));
+    });
+
+    const nodeBoxes = ds.model.nodes.map(n => ({ x: n.x, y: n.y, w: n.w, h: n.h }));
+    resolveTopologyEdgeLabels(
+      ds.renderedEdgeItems.map(entry => entry.item),
+      nodeBoxes,
+      ds.model.canvasWidth
+    );
+
+    ds.renderedEdgeItems.forEach(entry => {
+      const { labelX, labelY, pillW, pillH } = entry.item;
+      if (entry.pillRect) {
+        entry.pillRect.setAttribute('x', (labelX - pillW / 2).toFixed(1));
+        entry.pillRect.setAttribute('y', (labelY - pillH / 2).toFixed(1));
+      }
+      if (entry.pillText) {
+        entry.pillText.setAttribute('x', labelX.toFixed(1));
+        entry.pillText.setAttribute('y', (labelY + 3.5).toFixed(1));
       }
     });
   }
