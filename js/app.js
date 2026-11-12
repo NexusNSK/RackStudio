@@ -1258,7 +1258,7 @@ class App {
                 Открыть стойку ➔
               </button>
             ` : ''}
-            ${tpl?.category === 'switch' || dev.cliConfig ? `
+            ${tpl?.category === 'switch' || String(tpl?.vendor || '').toLowerCase().includes('eltex') || dev.cliConfig ? `
               <button class="flex-1 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5"
                       onclick="window.openDeviceCli('${dev.id}')">
                 <span>💻 Открыть CLI конфиг</span>

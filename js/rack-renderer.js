@@ -296,12 +296,12 @@ export class RackRenderer {
     const isSilver = !hasCustomImage && template?.style?.theme === 'silver';
     const isLabelAbove = this.isUpperRowPort(port, template?.ports || [], (template?.uHeight || 1) * 54);
     const portDisplayLabel = hasCustomImage
-      ? (port.type === 'console'
+      ? (port.label || (port.type === 'console'
         ? 'CON'
         : port.type === 'sfp'
           ? `XG${Math.max(1, (port.number || 25) - 24)}`
-          : (port.number || ''))
-      : (port.number || '');
+          : (port.number || '')))
+      : (port.label || port.number || '');
     const portLabelClass = hasCustomImage
       ? 'opacity-0 group-hover:opacity-100 group-hover:z-40 bg-slate-950/90 text-cyan-200 px-1 py-0.5 rounded shadow'
       : (isSilver ? 'text-slate-700 group-hover:text-cyan-700' : 'text-slate-400 group-hover:text-cyan-300');

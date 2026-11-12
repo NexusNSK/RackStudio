@@ -466,7 +466,9 @@ class StateStore {
       uPosition: targetU,
       ipAddress: '',
       notes: '',
-      cliConfig: template.category === 'switch' ? `! Switch Configuration for ${customName || template.name}\nhostname ${customName || 'Switch'}\n` : ''
+      cliConfig: (template.category === 'switch' || String(template.vendor || '').toLowerCase().includes('eltex'))
+        ? `! Configuration for ${customName || template.name}\nhostname ${customName || 'Eltex-Device'}\n`
+        : ''
     };
 
     rack.installedDevices.push(newDevice);

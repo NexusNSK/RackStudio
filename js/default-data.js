@@ -290,6 +290,130 @@ export const DEFAULT_DEVICE_TEMPLATES = [
       consoleY: 74.19,
       rjSpeed: '1G'
     })
+  },
+
+  {
+    id: 'tpl-eltex-ltp-4x',
+    name: 'Eltex LTP-4X',
+    vendor: 'Eltex',
+    category: 'switch',
+    uHeight: 1,
+    powerW: 45,
+    style: {
+      theme: 'silver',
+      accentColor: '#0ea5e9',
+      customImage: 'assets/panels/ltp4x.png'
+    },
+    ports: [
+      {
+        id: 'console',
+        number: 0,
+        label: 'CON',
+        name: 'Console (RS-232)',
+        type: 'console',
+        speed: 'RS-232',
+        x: 21.72,
+        y: 67.74
+      },
+      // 4x Combo Gigabit ports (coaxial: RJ-45 top, SFP bottom)
+      ...[27.44, 31.4, 35.37, 39.33].flatMap((cx, i) => [
+        {
+          id: `combo-ge-${i}`,
+          number: i + 1,
+          label: `C${i}`,
+          name: `Combo ${i} (RJ-45 1G)`,
+          type: 'rj45',
+          speed: '1G',
+          x: cx,
+          y: 44.35
+        },
+        {
+          id: `combo-sfp-${i}`,
+          number: i + 5,
+          label: `SFP${i}`,
+          name: `Combo ${i} (SFP 1G)`,
+          type: 'sfp',
+          speed: '1G SFP',
+          x: cx,
+          y: 75.81
+        }
+      ]),
+      // 2x 10G SFP+ Uplinks
+      { id: 'xg-0', number: 9, label: 'XG0', name: '10G SFP+ Uplink 0', type: 'sfp', speed: '10G SFP+', x: 45.35, y: 70.97 },
+      { id: 'xg-1', number: 10, label: 'XG1', name: '10G SFP+ Uplink 1', type: 'sfp', speed: '10G SFP+', x: 49.92, y: 70.97 },
+      // 4x GPON OLT SFP ports
+      ...[56.78, 61.36, 65.93, 70.5].map((cx, i) => ({
+        id: `pon-${i}`,
+        number: i + 11,
+        label: `PON${i}`,
+        name: `GPON Port ${i} (2.5G)`,
+        type: 'sfp',
+        speed: '2.5G GPON',
+        x: cx,
+        y: 70.97
+      }))
+    ]
+  },
+
+  {
+    id: 'tpl-eltex-tau-32',
+    name: 'Eltex TAU-32',
+    vendor: 'Eltex',
+    category: 'router',
+    uHeight: 1,
+    powerW: 50,
+    style: {
+      theme: 'silver',
+      accentColor: '#059669',
+      customImage: 'assets/panels/tau32.png'
+    },
+    ports: [
+      {
+        id: 'console',
+        number: 0,
+        label: 'CON',
+        name: 'Console (RS-232)',
+        type: 'console',
+        speed: 'RS-232',
+        x: 16.16,
+        y: 67.74
+      },
+      // 2x 1000BASE-X SFP
+      { id: 'sfp-0', number: 1, label: 'SFP0', name: 'SFP 0 (1G SFP)', type: 'sfp', speed: '1G SFP', x: 21.04, y: 70.97 },
+      { id: 'sfp-1', number: 2, label: 'SFP1', name: 'SFP 1 (1G SFP)', type: 'sfp', speed: '1G SFP', x: 25.46, y: 70.97 },
+      // 3x 1000BASE-T Ethernet
+      { id: 'ge-0', number: 3, label: 'GE0', name: 'GE0 (1000BASE-T)', type: 'rj45', speed: '1G', x: 30.34, y: 70.97 },
+      { id: 'ge-1', number: 4, label: 'GE1', name: 'GE1 (1000BASE-T)', type: 'rj45', speed: '1G', x: 33.84, y: 70.97 },
+      { id: 'ge-2', number: 5, label: 'GE2', name: 'GE2 (1000BASE-T)', type: 'rj45', speed: '1G', x: 37.35, y: 70.97 },
+      // 32x FXS subscriber ports (1..16 top, 17..32 bottom)
+      ...[
+        42.84, 45.96, 49.09, 52.21,
+        57.01, 60.14, 63.26, 66.39,
+        71.19, 74.31, 77.44, 80.56,
+        85.37, 88.49, 91.62, 94.74
+      ].flatMap((cx, i) => [
+        {
+          id: `fxs-${i + 1}`,
+          number: i + 1,
+          label: `${i + 1}`,
+          name: `FXS ${i + 1}`,
+          type: 'rj45',
+          speed: 'FXS / Телефон',
+          x: cx,
+          y: 43.55
+        },
+        {
+          id: `fxs-${i + 17}`,
+          number: i + 17,
+          label: `${i + 17}`,
+          name: `FXS ${i + 17}`,
+          type: 'rj45',
+          speed: 'FXS / Телефон',
+          x: cx,
+          y: 72.58
+        }
+      ])
+    ]
   }
 ];
 

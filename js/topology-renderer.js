@@ -220,8 +220,15 @@ function resolveTopologyEdgeLabels(preparedEdges, nodeBoxes, canvasWidth = 1200)
   });
 }
 
-function getCategoryMeta(category, vendor = '') {
+function getCategoryMeta(category, vendor = '', name = '') {
   const isEltex = String(vendor).toLowerCase().includes('eltex');
+  const fullName = `${vendor} ${name}`.toLowerCase();
+  if (isEltex && /ltp/.test(fullName)) {
+    return { icon: '🌐', label: 'Eltex LTP / OLT', accent: '#0284c7', border: '#0369a1' };
+  }
+  if (isEltex && /tau/.test(fullName)) {
+    return { icon: '📞', label: 'Eltex TAU / VoIP-шлюз', accent: '#059669', border: '#047857' };
+  }
   switch (category) {
     case 'router':
       return { icon: '🛡', label: isEltex ? 'Eltex ESR / Шлюз' : 'Шлюз / Маршрутизатор', accent: '#10b981', border: '#059669' };
@@ -794,7 +801,7 @@ export class TopologyRenderer {
     }).join('');
 
     const nodesMarkup = model.nodes.map(n => {
-      const meta = getCategoryMeta(n.category, n.vendor);
+      const meta = getCategoryMeta(n.category, n.vendor, n.device?.customName || n.template?.name || '');
       const isSelected = interactive && selectedEntity?.type === 'device' && selectedEntity.id === n.id;
 
       let matchesActiveFilter = true;

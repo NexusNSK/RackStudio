@@ -102,6 +102,37 @@ export class CliEditor {
     const isEltex = String(template?.vendor || '').toLowerCase().includes('eltex');
     const host = (device.customName || 'Switch').replace(/\s+/g, '-');
     if (isEltex) {
+      const modelHint = `${template?.name || ''} ${device.customName || ''}`;
+      if (/ltp/i.test(modelHint)) {
+        return `! =======================================================
+! Конфигурация Eltex OLT: ${device.customName} (${template?.name || 'LTP-4X'})
+! Создано в RackStudio
+! =======================================================
+hostname ${host}
+!
+! interface front-port 0
+!  description Uplink-to-Core
+!  no shutdown
+!
+! interface pon-port 0
+!  description GPON-Segment-0
+!  no shutdown
+!
+end`;
+      }
+      if (/tau/i.test(modelHint)) {
+        return `! =======================================================
+! Конфигурация Eltex VoIP: ${device.customName} (${template?.name || 'TAU-32'})
+! Создано в RackStudio
+! =======================================================
+hostname ${host}
+!
+! net ip address 192.168.1.10/24
+! net gateway 192.168.1.1
+! sip profile default proxy 192.168.1.5
+!
+end`;
+      }
       return `! =======================================================
 ! Конфигурация Eltex: ${device.customName} (${template?.name || 'MES'})
 ! Создано в RackStudio

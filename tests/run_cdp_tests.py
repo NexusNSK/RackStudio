@@ -852,7 +852,9 @@ async def run_test_suite():
                 const imgs = [
                     'assets/panels/mes2324.png',
                     'assets/panels/mes2324p.png',
-                    'assets/panels/mes2324b.png'
+                    'assets/panels/mes2324b.png',
+                    'assets/panels/ltp4x.png',
+                    'assets/panels/tau32.png'
                 ];
                 const loaded = await Promise.all(imgs.map(src => new Promise(resolve => {
                     const img = new Image();
@@ -864,6 +866,52 @@ async def run_test_suite():
             })()
         """, await_promise=True)
         record("Eltex front-panel PNG images load cleanly (1312x124)", bool(eltex_images_ok))
+
+        ltp_tau_ok = await client.eval("""
+            (() => {
+                const ltp = window.store.getTemplate('tpl-eltex-ltp-4x');
+                const tau = window.store.getTemplate('tpl-eltex-tau-32');
+                if (!ltp || ltp.vendor !== 'Eltex' || ltp.ports.length !== 15) return false;
+                if (!tau || tau.vendor !== 'Eltex' || tau.ports.length !== 38) return false;
+
+                const dLtp = window.store.installDevice('tpl-eltex-ltp-4x', 9, 'OLT-LTP-4X');
+                const dTau = window.store.installDevice('tpl-eltex-tau-32', 8, 'VoIP-TAU-32');
+                if (!dLtp || !dTau) return false;
+
+                try {
+                    const elLtp = document.querySelector(`.installed-device[data-device-id="${dLtp.id}"]`);
+                    const elTau = document.querySelector(`.installed-device[data-device-id="${dTau.id}"]`);
+                    if (!elLtp?.querySelector('.custom-image-panel') || !elTau?.querySelector('.custom-image-panel')) return false;
+
+                    const cGe = elLtp.querySelector('.port-slot[data-port-id="combo-ge-0"]');
+                    const cSfp = elLtp.querySelector('.port-slot[data-port-id="combo-sfp-0"]');
+                    const pon0 = elLtp.querySelector('.port-slot[data-port-id="pon-0"]');
+                    const fxs1 = elTau.querySelector('.port-slot[data-port-id="fxs-1"]');
+                    const fxs17 = elTau.querySelector('.port-slot[data-port-id="fxs-17"]');
+                    const tauSfp0 = elTau.querySelector('.port-slot[data-port-id="sfp-0"]');
+                    if (!cGe || !cSfp || !pon0 || !fxs1 || !fxs17 || !tauSfp0) return false;
+
+                    const jTop = fxs1.querySelector('.port-jack').getBoundingClientRect();
+                    const jBot = fxs17.querySelector('.port-jack').getBoundingClientRect();
+                    const uplinkCable = window.store.addCable({
+                        from: { deviceId: dLtp.id, portId: 'xg-0' },
+                        to: { deviceId: dTau.id, portId: 'sfp-0' }
+                    });
+                    return (
+                        cGe.dataset.labelPos === 'top' &&
+                        cSfp.dataset.labelPos === 'bottom' &&
+                        fxs1.dataset.labelPos === 'top' &&
+                        fxs17.dataset.labelPos === 'bottom' &&
+                        jTop.bottom <= jBot.top + 0.5 &&
+                        Boolean(uplinkCable && uplinkCable.type === '10G SFP+ DAC')
+                    );
+                } finally {
+                    window.store.removeDevice(dLtp.id);
+                    window.store.removeDevice(dTau.id);
+                }
+            })()
+        """)
+        record("Eltex LTP-4X (15 ports) & TAU-32 (38 ports) render photo panels and patch cleanly", bool(ltp_tau_ok))
 
         eltex_render_ok = await client.eval("""
             (() => {
@@ -921,6 +969,8 @@ async def run_test_suite():
                         ids.has('tpl-eltex-mes2324') &&
                         ids.has('tpl-eltex-mes2324p') &&
                         ids.has('tpl-eltex-mes2324b') &&
+                        ids.has('tpl-eltex-ltp-4x') &&
+                        ids.has('tpl-eltex-tau-32') &&
                         !ids.has('tpl-pdu-1u')
                     );
                 } finally {
