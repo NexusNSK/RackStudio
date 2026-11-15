@@ -834,8 +834,8 @@ async def run_test_suite():
         print("\n--- Test Suite 9A: Eltex MES2324 Built-in Photo Templates ---")
         eltex_templates_ok = await client.eval("""
             (() => {
-                const ids = ['tpl-eltex-mes2324', 'tpl-eltex-mes2324p', 'tpl-eltex-mes2324b'];
-                return ids.every(id => {
+                const standardIds = ['tpl-eltex-mes2324', 'tpl-eltex-mes2324p'];
+                const standardOk = standardIds.every(id => {
                     const tpl = window.store.getTemplate(id);
                     if (!tpl || tpl.vendor !== 'Eltex' || tpl.category !== 'switch') return false;
                     const rjCount = tpl.ports.filter(p => p.type === 'rj45').length;
@@ -843,9 +843,19 @@ async def run_test_suite():
                     const conCount = tpl.ports.filter(p => p.type === 'console').length;
                     return rjCount === 24 && sfpCount === 4 && conCount === 1 && Boolean(tpl.style?.customImage);
                 });
+                const bTpl = window.store.getTemplate('tpl-eltex-mes2324b');
+                const bOk = Boolean(
+                    bTpl && bTpl.vendor === 'Eltex' && bTpl.category === 'switch' &&
+                    bTpl.ports.filter(p => p.type === 'rj45').length === 24 &&
+                    bTpl.ports.filter(p => p.type === 'sfp').length === 4 &&
+                    bTpl.ports.filter(p => p.type === 'console').length === 0 &&
+                    bTpl.ports.filter(p => p.type === 'power').length === 0 &&
+                    Boolean(bTpl.style?.customImage)
+                );
+                return standardOk && bOk;
             })()
         """)
-        record("Eltex MES2324, MES2324P, and MES2324B templates exist with 29 ports", bool(eltex_templates_ok))
+        record("Eltex MES2324 series templates exist (MES2324B with 28 ports, no console/power)", bool(eltex_templates_ok))
 
         eltex_images_ok = await client.eval("""
             (async () => {
@@ -871,8 +881,10 @@ async def run_test_suite():
             (() => {
                 const ltp = window.store.getTemplate('tpl-eltex-ltp-4x');
                 const tau = window.store.getTemplate('tpl-eltex-tau-32');
-                if (!ltp || ltp.vendor !== 'Eltex' || ltp.ports.length !== 15) return false;
-                if (!tau || tau.vendor !== 'Eltex' || tau.ports.length !== 38) return false;
+                if (!ltp || ltp.vendor !== 'Eltex' || ltp.ports.length !== 14) return false;
+                if (!tau || tau.vendor !== 'Eltex' || tau.ports.length !== 7) return false;
+                const hasConsoleOrPower = [...ltp.ports, ...tau.ports].some(p => p.type === 'console' || p.type === 'power');
+                if (hasConsoleOrPower) return false;
 
                 const dLtp = window.store.installDevice('tpl-eltex-ltp-4x', 9, 'OLT-LTP-4X');
                 const dTau = window.store.installDevice('tpl-eltex-tau-32', 8, 'VoIP-TAU-32');
@@ -883,26 +895,37 @@ async def run_test_suite():
                     const elTau = document.querySelector(`.installed-device[data-device-id="${dTau.id}"]`);
                     if (!elLtp?.querySelector('.custom-image-panel') || !elTau?.querySelector('.custom-image-panel')) return false;
 
-                    const cGe = elLtp.querySelector('.port-slot[data-port-id="combo-ge-0"]');
-                    const cSfp = elLtp.querySelector('.port-slot[data-port-id="combo-sfp-0"]');
+                    const cRj0 = elLtp.querySelector('.port-slot[data-port-id="combo-rj-0"]');
+                    const cRj1 = elLtp.querySelector('.port-slot[data-port-id="combo-rj-1"]');
+                    const xg0 = elLtp.querySelector('.port-slot[data-port-id="xg-0"]');
+                    const xg1 = elLtp.querySelector('.port-slot[data-port-id="xg-1"]');
                     const pon0 = elLtp.querySelector('.port-slot[data-port-id="pon-0"]');
-                    const fxs1 = elTau.querySelector('.port-slot[data-port-id="fxs-1"]');
-                    const fxs17 = elTau.querySelector('.port-slot[data-port-id="fxs-17"]');
+                    const pon1 = elLtp.querySelector('.port-slot[data-port-id="pon-1"]');
+                    const cenc1 = elTau.querySelector('.port-slot[data-port-id="cenc-1"]');
+                    const cenc2 = elTau.querySelector('.port-slot[data-port-id="cenc-2"]');
+                    const tauGe0 = elTau.querySelector('.port-slot[data-port-id="ge-0"]');
                     const tauSfp0 = elTau.querySelector('.port-slot[data-port-id="sfp-0"]');
-                    if (!cGe || !cSfp || !pon0 || !fxs1 || !fxs17 || !tauSfp0) return false;
+                    const tauSfp1 = elTau.querySelector('.port-slot[data-port-id="sfp-1"]');
+                    if (!cRj0 || !cRj1 || !xg0 || !xg1 || !pon0 || !pon1 || !cenc1 || !cenc2 || !tauGe0 || !tauSfp0 || !tauSfp1) return false;
 
-                    const jTop = fxs1.querySelector('.port-jack').getBoundingClientRect();
-                    const jBot = fxs17.querySelector('.port-jack').getBoundingClientRect();
+                    const jRj0 = cRj0.querySelector('.port-jack').getBoundingClientRect();
+                    const jRj1 = cRj1.querySelector('.port-jack').getBoundingClientRect();
+                    const jSfp0 = tauSfp0.querySelector('.port-jack').getBoundingClientRect();
+                    const jSfp1 = tauSfp1.querySelector('.port-jack').getBoundingClientRect();
+
                     const uplinkCable = window.store.addCable({
                         from: { deviceId: dLtp.id, portId: 'xg-0' },
                         to: { deviceId: dTau.id, portId: 'sfp-0' }
                     });
                     return (
-                        cGe.dataset.labelPos === 'top' &&
-                        cSfp.dataset.labelPos === 'bottom' &&
-                        fxs1.dataset.labelPos === 'top' &&
-                        fxs17.dataset.labelPos === 'bottom' &&
-                        jTop.bottom <= jBot.top + 0.5 &&
+                        cRj0.dataset.labelPos === 'top' &&
+                        cRj1.dataset.labelPos === 'bottom' &&
+                        jRj0.bottom <= jRj1.top + 0.5 &&
+                        xg0.dataset.labelPos === 'top' &&
+                        xg1.dataset.labelPos === 'bottom' &&
+                        tauSfp0.dataset.labelPos === 'top' &&
+                        tauSfp1.dataset.labelPos === 'bottom' &&
+                        jSfp0.bottom <= jSfp1.top + 0.5 &&
                         Boolean(uplinkCable && uplinkCable.type === '10G SFP+ DAC')
                     );
                 } finally {
@@ -911,7 +934,7 @@ async def run_test_suite():
                 }
             })()
         """)
-        record("Eltex LTP-4X (15 ports) & TAU-32 (38 ports) render photo panels and patch cleanly", bool(ltp_tau_ok))
+        record("Eltex LTP-4X (14 ports) & TAU-32 (7 ports) overlay CAD blueprints without console/power", bool(ltp_tau_ok))
 
         eltex_render_ok = await client.eval("""
             (() => {

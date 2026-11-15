@@ -71,6 +71,16 @@ class StateStore {
         if (p1?.x === 36.72 && p1?.y === 43.55 && xg1?.x === 81.94 && xg1?.y === 77.42) {
           existingTpl.ports = JSON.parse(JSON.stringify(dt.ports));
         }
+      } else if (dt.id === 'tpl-eltex-mes2324b' || dt.id === 'tpl-eltex-ltp-4x' || dt.id === 'tpl-eltex-tau-32') {
+        const existingTpl = targetState.templates.find(t => t.id === dt.id);
+        if (existingTpl) {
+          const hasConsole = existingTpl.ports?.some(p => p.type === 'console');
+          const hasPower = existingTpl.ports?.some(p => p.type === 'power');
+          if (hasConsole || hasPower || existingTpl.ports?.length !== dt.ports.length) {
+            existingTpl.ports = JSON.parse(JSON.stringify(dt.ports));
+            existingTpl.style = JSON.parse(JSON.stringify(dt.style));
+          }
+        }
       }
       if (!knownIds.has(dt.id)) {
         targetState.knownDefaultTemplateIds.push(dt.id);
