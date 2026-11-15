@@ -306,26 +306,26 @@ export const DEFAULT_DEVICE_TEMPLATES = [
     },
     ports: [
       // 4x Combo GE: RJ-45 ports (0 and 2 top, 1 and 3 bottom)
-      { id: 'combo-rj-0', number: 1, label: 'C0', name: 'Combo 0 (RJ-45 1G)', type: 'rj45', speed: '1G', x: 23.78, y: 33.5 },
-      { id: 'combo-rj-1', number: 2, label: 'C1', name: 'Combo 1 (RJ-45 1G)', type: 'rj45', speed: '1G', x: 23.78, y: 69.0 },
-      { id: 'combo-rj-2', number: 3, label: 'C2', name: 'Combo 2 (RJ-45 1G)', type: 'rj45', speed: '1G', x: 27.06, y: 33.5 },
-      { id: 'combo-rj-3', number: 4, label: 'C3', name: 'Combo 3 (RJ-45 1G)', type: 'rj45', speed: '1G', x: 27.06, y: 69.0 },
+      { id: 'combo-rj-0', number: 1, label: 'C0', name: 'Combo 0 (RJ-45 1G)', type: 'rj45', speed: '1G', x: 23.24, y: 34.80 },
+      { id: 'combo-rj-1', number: 2, label: 'C1', name: 'Combo 1 (RJ-45 1G)', type: 'rj45', speed: '1G', x: 23.24, y: 67.15 },
+      { id: 'combo-rj-2', number: 3, label: 'C2', name: 'Combo 2 (RJ-45 1G)', type: 'rj45', speed: '1G', x: 26.62, y: 34.80 },
+      { id: 'combo-rj-3', number: 4, label: 'C3', name: 'Combo 3 (RJ-45 1G)', type: 'rj45', speed: '1G', x: 26.62, y: 67.15 },
 
       // 4x Combo GE: SFP ports (0 and 2 top, 1 and 3 bottom)
-      { id: 'combo-sfp-0', number: 5, label: 'SFP0', name: 'Combo 0 (SFP 1G)', type: 'sfp', speed: '1G SFP', x: 31.44, y: 33.87 },
-      { id: 'combo-sfp-1', number: 6, label: 'SFP1', name: 'Combo 1 (SFP 1G)', type: 'sfp', speed: '1G SFP', x: 31.44, y: 69.95 },
-      { id: 'combo-sfp-2', number: 7, label: 'SFP2', name: 'Combo 2 (SFP 1G)', type: 'sfp', speed: '1G SFP', x: 35.79, y: 33.87 },
-      { id: 'combo-sfp-3', number: 8, label: 'SFP3', name: 'Combo 3 (SFP 1G)', type: 'sfp', speed: '1G SFP', x: 35.79, y: 69.95 },
+      { id: 'combo-sfp-0', number: 5, label: 'SFP0', name: 'Combo 0 (SFP 1G)', type: 'sfp', speed: '1G SFP', x: 31.48, y: 34.25 },
+      { id: 'combo-sfp-1', number: 6, label: 'SFP1', name: 'Combo 1 (SFP 1G)', type: 'sfp', speed: '1G SFP', x: 31.48, y: 66.10 },
+      { id: 'combo-sfp-2', number: 7, label: 'SFP2', name: 'Combo 2 (SFP 1G)', type: 'sfp', speed: '1G SFP', x: 36.09, y: 34.25 },
+      { id: 'combo-sfp-3', number: 8, label: 'SFP3', name: 'Combo 3 (SFP 1G)', type: 'sfp', speed: '1G SFP', x: 36.09, y: 66.10 },
 
       // 2x 10G SFP+ Uplinks (0 top, 1 bottom)
-      { id: 'xg-0', number: 9, label: 'XG0', name: '10G SFP+ Uplink 0', type: 'sfp', speed: '10G SFP+', x: 41.10, y: 33.87 },
-      { id: 'xg-1', number: 10, label: 'XG1', name: '10G SFP+ Uplink 1', type: 'sfp', speed: '10G SFP+', x: 41.10, y: 69.95 },
+      { id: 'xg-0', number: 9, label: 'XG0', name: '10G SFP+ Uplink 0', type: 'sfp', speed: '10G SFP+', x: 43.10, y: 34.25 },
+      { id: 'xg-1', number: 10, label: 'XG1', name: '10G SFP+ Uplink 1', type: 'sfp', speed: '10G SFP+', x: 43.10, y: 66.10 },
 
       // 4x GPON OLT SFP ports (0 and 2 top, 1 and 3 bottom)
-      { id: 'pon-0', number: 11, label: 'PON0', name: 'GPON Port 0 (2.5G)', type: 'sfp', speed: '2.5G GPON', x: 58.90, y: 33.87 },
-      { id: 'pon-1', number: 12, label: 'PON1', name: 'GPON Port 1 (2.5G)', type: 'sfp', speed: '2.5G GPON', x: 58.90, y: 69.35 },
-      { id: 'pon-2', number: 13, label: 'PON2', name: 'GPON Port 2 (2.5G)', type: 'sfp', speed: '2.5G GPON', x: 62.46, y: 33.87 },
-      { id: 'pon-3', number: 14, label: 'PON3', name: 'GPON Port 3 (2.5G)', type: 'sfp', speed: '2.5G GPON', x: 62.46, y: 69.35 }
+      { id: 'pon-0', number: 11, label: 'PON0', name: 'GPON Port 0 (2.5G)', type: 'sfp', speed: '2.5G GPON', x: 59.29, y: 34.25 },
+      { id: 'pon-1', number: 12, label: 'PON1', name: 'GPON Port 1 (2.5G)', type: 'sfp', speed: '2.5G GPON', x: 59.29, y: 66.10 },
+      { id: 'pon-2', number: 13, label: 'PON2', name: 'GPON Port 2 (2.5G)', type: 'sfp', speed: '2.5G GPON', x: 64.06, y: 34.25 },
+      { id: 'pon-3', number: 14, label: 'PON3', name: 'GPON Port 3 (2.5G)', type: 'sfp', speed: '2.5G GPON', x: 64.06, y: 66.10 }
     ]
   },
 
@@ -343,17 +343,17 @@ export const DEFAULT_DEVICE_TEMPLATES = [
     },
     ports: [
       // 2x Centronics-36 connectors for 32 FXS subscriber lines
-      { id: 'cenc-1', number: 1, label: 'L32..17', name: 'Линии 32..17 (Centronics-36)', type: 'rj45', speed: '16x FXS Trunk', x: 29.69, y: 58.06 },
-      { id: 'cenc-2', number: 2, label: 'L16..1', name: 'Линии 16..1 (Centronics-36)', type: 'rj45', speed: '16x FXS Trunk', x: 47.98, y: 58.06 },
+      { id: 'cenc-1', number: 1, label: 'L32..17', name: 'Линии 32..17 (Centronics-36)', type: 'rj45', speed: '16x FXS Trunk', x: 32.05, y: 64.70 },
+      { id: 'cenc-2', number: 2, label: 'L16..1', name: 'Линии 16..1 (Centronics-36)', type: 'rj45', speed: '16x FXS Trunk', x: 49.46, y: 64.70 },
 
       // 3x 1000BASE-T Ethernet ports
-      { id: 'ge-2', number: 3, label: 'GE2', name: 'GE2 (1000BASE-T)', type: 'rj45', speed: '1G', x: 73.32, y: 68.15 },
-      { id: 'ge-1', number: 4, label: 'GE1', name: 'GE1 (1000BASE-T)', type: 'rj45', speed: '1G', x: 79.31, y: 67.74 },
-      { id: 'ge-0', number: 5, label: 'GE0', name: 'GE0 (1000BASE-T)', type: 'rj45', speed: '1G', x: 83.08, y: 67.74 },
+      { id: 'ge-2', number: 3, label: 'GE2', name: 'GE2 (1000BASE-T)', type: 'rj45', speed: '1G', x: 79.25, y: 70.80 },
+      { id: 'ge-1', number: 4, label: 'GE1', name: 'GE1 (1000BASE-T)', type: 'rj45', speed: '1G', x: 83.06, y: 70.80 },
+      { id: 'ge-0', number: 5, label: 'GE0', name: 'GE0 (1000BASE-T)', type: 'rj45', speed: '1G', x: 86.85, y: 70.80 },
 
       // 2x 1000BASE-X SFP ports (stacked vertically: SFP0 top, SFP1 bottom)
-      { id: 'sfp-0', number: 6, label: 'SFP0', name: 'SFP 0 (1000BASE-X)', type: 'sfp', speed: '1G SFP', x: 90.10, y: 39.52 },
-      { id: 'sfp-1', number: 7, label: 'SFP1', name: 'SFP 1 (1000BASE-X)', type: 'sfp', speed: '1G SFP', x: 90.10, y: 70.16 }
+      { id: 'sfp-0', number: 6, label: 'SFP0', name: 'SFP 0 (1000BASE-X)', type: 'sfp', speed: '1G SFP', x: 90.58, y: 41.60 },
+      { id: 'sfp-1', number: 7, label: 'SFP1', name: 'SFP 1 (1000BASE-X)', type: 'sfp', speed: '1G SFP', x: 90.58, y: 70.95 }
     ]
   }
 ];

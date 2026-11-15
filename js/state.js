@@ -76,7 +76,9 @@ class StateStore {
         if (existingTpl) {
           const hasConsole = existingTpl.ports?.some(p => p.type === 'console');
           const hasPower = existingTpl.ports?.some(p => p.type === 'power');
-          if (hasConsole || hasPower || existingTpl.ports?.length !== dt.ports.length) {
+          const hasOldLtpCoords = dt.id === 'tpl-eltex-ltp-4x' && existingTpl.ports?.some(p => p.id === 'xg-0' && p.x === 41.10);
+          const hasOldTauCoords = dt.id === 'tpl-eltex-tau-32' && existingTpl.ports?.some(p => p.id === 'ge-2' && p.x === 73.32);
+          if (hasConsole || hasPower || existingTpl.ports?.length !== dt.ports.length || hasOldLtpCoords || hasOldTauCoords) {
             existingTpl.ports = JSON.parse(JSON.stringify(dt.ports));
             existingTpl.style = JSON.parse(JSON.stringify(dt.style));
           }
