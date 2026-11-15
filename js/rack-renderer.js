@@ -192,31 +192,20 @@ export class RackRenderer {
            data-u="${device.uPosition}">
         
         <div class="w-full h-full relative flex items-center justify-between px-2 overflow-hidden ${themeClass} border-b border-slate-950/80">
-          
-          <div class="rack-ear left-0 top-0 bottom-0 w-4 bg-gradient-to-r from-[#2c313a] to-[#1e2229] border-r border-slate-900/50 flex flex-col justify-around items-center py-1 absolute z-30">
-            <span class="w-2 h-2 rounded-full bg-slate-950 border border-slate-500 shadow-inner"></span>
-            ${uHeight > 1 ? '<span class="w-2 h-2 rounded-full bg-slate-950 border border-slate-500 shadow-inner"></span>' : ''}
-          </div>
-
           ${decorationsHtml}
 
           ${hasCustomImage ? `
-            <div class="absolute left-5 top-0.5 pointer-events-none flex items-center z-20">
+            <div class="absolute left-3 top-0.5 pointer-events-none flex items-center z-20">
               <span class="px-1.5 py-[1px] rounded bg-slate-950/80 border border-slate-700/75 text-[9px] font-semibold tracking-tight text-slate-100 shadow-sm truncate max-w-[150px]">${device.customName}</span>
             </div>
           ` : `
-            <div class="absolute left-6 top-1 pointer-events-none flex items-center opacity-80 z-20">
+            <div class="absolute left-3 top-1 pointer-events-none flex items-center opacity-80 z-20">
               <span class="text-[10px] font-semibold tracking-tight ${template?.style?.theme === 'silver' ? 'text-slate-800' : 'text-slate-300'} drop-shadow-sm truncate max-w-[160px]">${device.customName}</span>
             </div>
           `}
 
           <div class="ports-container absolute inset-0 z-20 pointer-events-auto">
             ${portsHtml}
-          </div>
-
-          <div class="rack-ear right-0 top-0 bottom-0 w-4 bg-gradient-to-l from-[#2c313a] to-[#1e2229] border-l border-slate-900/50 flex flex-col justify-around items-center py-1 absolute z-30">
-            <span class="w-2 h-2 rounded-full bg-slate-950 border border-slate-500 shadow-inner"></span>
-            ${uHeight > 1 ? '<span class="w-2 h-2 rounded-full bg-slate-950 border border-slate-500 shadow-inner"></span>' : ''}
           </div>
         </div>
       </div>

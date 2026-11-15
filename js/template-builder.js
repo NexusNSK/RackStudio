@@ -372,16 +372,7 @@ export class TemplateBuilder {
       }
     }
 
-    let html = `
-      <!-- Left Rack Ear -->
-      <div class="absolute left-0 top-0 bottom-0 w-4 bg-[#262930] border-r border-slate-800 flex flex-col justify-around items-center py-1 pointer-events-none z-10">
-        <span class="w-2 h-2 rounded-full bg-black border border-slate-500"></span>
-      </div>
-      <!-- Right Rack Ear -->
-      <div class="absolute right-0 top-0 bottom-0 w-4 bg-[#262930] border-l border-slate-800 flex flex-col justify-around items-center py-1 pointer-events-none z-10">
-        <span class="w-2 h-2 rounded-full bg-black border border-slate-500"></span>
-      </div>
-    `;
+    let html = '';
 
     // Visual Guides & Grid Overlay
     if (showGrid) {
