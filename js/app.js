@@ -22,8 +22,10 @@ window.openAddRackModal = () => (window.app ? window.app.openAddRackModal() : nu
 window.openEditRackModal = (id) => (window.app ? window.app.openEditRackModal(id) : null);
 window.closeRackModal = () => (window.app ? window.app.closeRackModal() : null);
 window.deleteRackConfirm = (id) => (window.app ? window.app.deleteRackConfirm(id) : null);
-window.openAddGroupModal = () => (window.app ? window.app.openAddGroupModal() : null);
+window.openAddGroupModal = (id) => (window.app ? window.app.openAddGroupModal(id) : null);
+window.openEditGroupModal = (id, e) => (window.app ? window.app.openEditGroupModal(id, e) : null);
 window.closeAddGroupModal = () => (window.app ? window.app.closeAddGroupModal() : null);
+window.resetGroupForm = () => (window.app ? window.app.resetGroupForm() : null);
 window.deleteGroupConfirm = (id, e) => (window.app ? window.app.deleteGroupConfirm(id, e) : null);
 window.openDevicePalette = (u) => (window.app ? window.app.openDevicePalette(u) : null);
 window.openDevicePaletteForUnit = (u) => (window.app ? window.app.openDevicePalette(u) : null);
@@ -70,6 +72,7 @@ class App {
     };
 
     this.editingRackId = null;
+    this.editingGroupId = null;
 
     this.initGlobalWindowExposures();
     this.initEventListeners();
@@ -99,8 +102,10 @@ class App {
     window.openEditRackModal = (id) => this.openEditRackModal(id);
     window.closeRackModal = () => this.closeRackModal();
     window.deleteRackConfirm = (id) => this.deleteRackConfirm(id);
-    window.openAddGroupModal = () => this.openAddGroupModal();
+    window.openAddGroupModal = (id) => this.openAddGroupModal(id);
+    window.openEditGroupModal = (id, e) => this.openEditGroupModal(id, e);
     window.closeAddGroupModal = () => this.closeAddGroupModal();
+    window.resetGroupForm = () => this.resetGroupForm();
     window.deleteGroupConfirm = (id, e) => this.deleteGroupConfirm(id, e);
     window.zoomRackIn = () => this.stepRackZoom(1);
     window.zoomRackOut = () => this.stepRackZoom(-1);
@@ -141,6 +146,9 @@ class App {
       : `Удалить группу соединений "${grp.name}"?`;
 
     if (confirm(confirmMsg)) {
+      if (this.editingGroupId === groupId) {
+        this.resetGroupForm();
+      }
       store.deleteGroup(groupId);
       this.renderGroupModalList();
     }
@@ -581,8 +589,12 @@ class App {
       } else if (event.startsWith('group_')) {
         this.renderWorkplaceFilterBadges();
         this.renderGroupModalList();
+        this.rackRenderer.render();
         this.cableRenderer.render();
         if (this.workspaceView === 'topology') this.topologyRenderer.render();
+        if (store.selectedEntity?.type === 'cable') {
+          this.renderDetailsDrawer();
+        }
       } else if (event.startsWith('template_')) {
         if (event === 'template_updated') {
           this.rackRenderer.render();
@@ -1007,7 +1019,7 @@ class App {
     let html = `
       <button class="filter-pill flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${activeFilter === 'ALL' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm' : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 border border-slate-700/60'}"
               data-group-id="ALL">
-        <span>🌐 Все соединения</span>
+        <span>Все соединения</span>
         <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-900/80 text-slate-400 font-mono">${allCables.length}</span>
       </button>
     `;
@@ -1026,7 +1038,15 @@ class App {
             <span class="truncate max-w-[140px]">${g.name}</span>
             <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-900/80 font-mono" style="color:${g.color}">${count}</span>
           </button>
-          <button class="px-1.5 py-1.5 text-slate-500 hover:text-red-400 bg-slate-850 hover:bg-red-950/80 transition text-xs border-l border-slate-700/50"
+          <button type="button" class="px-1.5 py-1.5 text-slate-500 hover:text-cyan-400 bg-slate-850 hover:bg-cyan-950/80 transition text-xs border-l border-slate-700/50"
+                  title="Редактировать группу '${g.name}'"
+                  onclick="window.openEditGroupModal('${g.id}', event)">
+            <svg class="w-3 h-3 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+          </button>
+          <button type="button" class="px-1.5 py-1.5 text-slate-500 hover:text-red-400 bg-slate-850 hover:bg-red-950/80 transition text-xs border-l border-slate-700/50"
                   title="Удалить группу '${g.name}'"
                   onclick="window.deleteGroupConfirm('${g.id}', event)">
             ✕
@@ -1144,34 +1164,113 @@ class App {
 
     list.innerHTML = groups.map(g => {
       const cablesCount = allCables.filter(c => c.groupId === g.id).length;
+      const isEditing = this.editingGroupId === g.id;
       return `
-        <div class="flex items-center justify-between p-2 rounded-lg bg-slate-900/90 border border-slate-800 text-xs">
+        <div class="flex items-center justify-between p-2 rounded-lg ${isEditing ? 'bg-cyan-950/40 border-cyan-500/70 shadow-sm' : 'bg-slate-900/90 border-slate-800'} border text-xs transition">
           <div class="flex items-center gap-2 truncate">
             <span class="w-3 h-3 rounded-full shrink-0 shadow-sm" style="background:${g.color}"></span>
             <div class="truncate">
               <span class="font-bold text-white">${g.name}</span>
+              ${isEditing ? '<span class="text-[10px] text-cyan-400 font-mono ml-1.5">[редактируется]</span>' : ''}
               <span class="text-[10px] text-slate-400 font-mono ml-1.5">VLAN ${g.vlan || 10} • ${cablesCount} кабелей</span>
             </div>
           </div>
-          <button type="button" class="px-2 py-1 text-slate-400 hover:text-red-400 hover:bg-red-950/60 rounded text-xs transition border border-transparent hover:border-red-900"
-                  title="Удалить группу"
-                  onclick="window.deleteGroupConfirm('${g.id}', event)">
-            🗑 Удалить
-          </button>
+          <div class="flex items-center gap-1 shrink-0">
+            <button type="button" class="px-2 py-1 text-slate-300 hover:text-cyan-300 hover:bg-cyan-950/60 rounded text-xs transition border border-transparent hover:border-cyan-800"
+                    title="Редактировать группу"
+                    onclick="window.openEditGroupModal('${g.id}', event)">
+              Редактировать
+            </button>
+            <button type="button" class="px-2 py-1 text-slate-400 hover:text-red-400 hover:bg-red-950/60 rounded text-xs transition border border-transparent hover:border-red-900"
+                    title="Удалить группу"
+                    onclick="window.deleteGroupConfirm('${g.id}', event)">
+              Удалить
+            </button>
+          </div>
         </div>
       `;
     }).join('');
   }
 
-  openAddGroupModal() {
+  resetGroupForm() {
+    this.editingGroupId = null;
+    const activeRack = store.getActiveRack();
+    const modalTitle = document.getElementById('group-modal-title');
+    if (modalTitle) {
+      modalTitle.textContent = `Новая группа соединений (${activeRack?.name || 'Стойка'})`;
+    }
+
+    const nameInput = document.getElementById('grp-name-input');
+    if (nameInput) nameInput.value = '';
+
+    const colorInput = document.getElementById('grp-color-input');
+    if (colorInput) colorInput.value = '#00d2ff';
+
+    const vlanInput = document.getElementById('grp-vlan-input');
+    if (vlanInput) vlanInput.value = '10';
+
+    const descInput = document.getElementById('grp-desc-input');
+    if (descInput) descInput.value = '';
+
+    const submitBtn = document.getElementById('grp-submit-btn');
+    if (submitBtn) submitBtn.textContent = 'Создать группу';
+
+    const cancelEditBtn = document.getElementById('grp-cancel-edit-btn');
+    if (cancelEditBtn) cancelEditBtn.classList.add('hidden');
+
+    this.renderGroupModalList();
+  }
+
+  handleGroupFormSubmit(e) {
+    if (e) e.preventDefault();
+    const name = document.getElementById('grp-name-input')?.value.trim();
+    const color = document.getElementById('grp-color-input')?.value || '#00d2ff';
+    const vlan = parseInt(document.getElementById('grp-vlan-input')?.value, 10) || 10;
+    const desc = document.getElementById('grp-desc-input')?.value.trim() || '';
+
+    if (!name) return;
+
+    if (this.editingGroupId) {
+      store.updateGroup(this.editingGroupId, { name, color, vlan, description: desc });
+      this.closeAddGroupModal();
+    } else {
+      store.addGroup(name, color, vlan, desc);
+      this.resetGroupForm();
+    }
+  }
+
+  openEditGroupModal(groupId, e) {
+    if (e) e.stopPropagation();
+    const grp = store.getGroup(groupId);
+    if (!grp) return;
+
+    this.editingGroupId = groupId;
     const modal = document.getElementById('group-modal');
     if (!modal) return;
 
     const activeRack = store.getActiveRack();
     const modalTitle = document.getElementById('group-modal-title');
     if (modalTitle) {
-      modalTitle.textContent = `Новая группа соединений (${activeRack?.name || 'Стойка'})`;
+      modalTitle.textContent = `Редактирование группы (${activeRack?.name || 'Стойка'})`;
     }
+
+    const nameInput = document.getElementById('grp-name-input');
+    if (nameInput) nameInput.value = grp.name;
+
+    const colorInput = document.getElementById('grp-color-input');
+    if (colorInput) colorInput.value = grp.color;
+
+    const vlanInput = document.getElementById('grp-vlan-input');
+    if (vlanInput) vlanInput.value = grp.vlan ?? 10;
+
+    const descInput = document.getElementById('grp-desc-input');
+    if (descInput) descInput.value = grp.description || '';
+
+    const submitBtn = document.getElementById('grp-submit-btn');
+    if (submitBtn) submitBtn.textContent = 'Сохранить изменения';
+
+    const cancelEditBtn = document.getElementById('grp-cancel-edit-btn');
+    if (cancelEditBtn) cancelEditBtn.classList.remove('hidden');
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');
@@ -1180,20 +1279,33 @@ class App {
     this.renderGroupModalList();
 
     const form = document.getElementById('group-form');
-    form.onsubmit = (e) => {
-      e.preventDefault();
-      const name = document.getElementById('grp-name-input').value.trim();
-      const color = document.getElementById('grp-color-input').value;
-      const vlan = parseInt(document.getElementById('grp-vlan-input').value, 10) || 10;
-      const desc = document.getElementById('grp-desc-input').value.trim();
+    if (form) {
+      form.onsubmit = (ev) => this.handleGroupFormSubmit(ev);
+    }
+    nameInput?.focus();
+  }
 
-      if (name) {
-        store.addGroup(name, color, vlan, desc);
-        document.getElementById('grp-name-input').value = '';
-        this.renderGroupModalList();
-        this.renderWorkplaceFilterBadges();
-      }
-    };
+  openAddGroupModal(editGroupId = null) {
+    if (editGroupId) {
+      this.openEditGroupModal(editGroupId);
+      return;
+    }
+    const modal = document.getElementById('group-modal');
+    if (!modal) return;
+
+    this.resetGroupForm();
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    modal.style.display = 'flex';
+
+    const form = document.getElementById('group-form');
+    if (form) {
+      form.onsubmit = (e) => this.handleGroupFormSubmit(e);
+    }
+
+    const nameInput = document.getElementById('grp-name-input');
+    nameInput?.focus();
   }
 
   closeAddGroupModal() {
@@ -1203,6 +1315,7 @@ class App {
       modal.classList.remove('flex');
       modal.style.display = 'none';
     }
+    this.resetGroupForm();
   }
 
   renderDetailsDrawer() {
@@ -1371,7 +1484,7 @@ class App {
 
           <div class="space-y-3 bg-slate-800/60 p-3 rounded-lg border border-slate-700/80 text-xs">
             <div>
-              <label class="block text-slate-400 text-[11px] mb-1 font-semibold text-cyan-300">★ Группа рабочего места / Сервис</label>
+              <label class="block text-slate-400 text-[11px] mb-1 font-semibold text-cyan-300">Группа рабочего места / Сервис</label>
               <select id="drawer-cable-group" class="w-full bg-slate-900 border border-cyan-700/80 rounded px-2.5 py-1.5 text-slate-100 text-xs focus:ring-2 focus:ring-cyan-400">
                 <option value="">(Без группы / Инфраструктура)</option>
                 ${groups.map(g => `
@@ -1426,7 +1539,7 @@ class App {
 
           <button class="w-full py-2 bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-800 rounded-lg text-xs font-semibold transition"
                   onclick="store.removeCable('${cable.id}')">
-            🗑 Удалить кабель
+            Удалить кабель
           </button>
         </div>
       `;

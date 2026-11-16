@@ -307,6 +307,10 @@ class StateStore {
     return this.state.groups.find(g => g.id === id) || null;
   }
 
+  getCable(id) {
+    return this.state.cables.find(c => c.id === id) || null;
+  }
+
   getActiveGroupFilter() {
     return this.state.activeGroupFilter;
   }
@@ -682,8 +686,8 @@ class StateStore {
   }
 
   updateGroup(groupId, updates) {
-    const grp = this.state.groups.find(g => g.id === groupId);
-    if (!grp) return;
+    const grp = this.state.groups?.find(g => g.id === groupId);
+    if (!grp) return null;
     Object.assign(grp, updates);
     if (updates.color) {
       this.state.cables.forEach(c => {
@@ -691,6 +695,7 @@ class StateStore {
       });
     }
     this.notify('group_updated', { group: grp });
+    return grp;
   }
 
   deleteGroup(groupId) {

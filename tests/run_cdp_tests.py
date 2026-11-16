@@ -504,6 +504,56 @@ async def run_test_suite():
         """)
         record("Switching back to Rack 2 restores only Rack 2's isolated groups", rack2_has_only_own_group)
 
+        # Test editing connection group modal UI and form reset
+        edit_ui_test = await client.eval(f"""
+            (() => {{
+                // Open edit mode via global method
+                window.openEditGroupModal('{new_group_id}');
+                const title = document.getElementById('group-modal-title')?.textContent || '';
+                const nameVal = document.getElementById('grp-name-input')?.value || '';
+                const colorVal = document.getElementById('grp-color-input')?.value || '';
+                const vlanVal = document.getElementById('grp-vlan-input')?.value || '';
+                const btnText = document.getElementById('grp-submit-btn')?.textContent || '';
+                const cancelBtnVisible = !document.getElementById('grp-cancel-edit-btn')?.classList.contains('hidden');
+
+                // Test cancel edit resets back to create mode
+                document.getElementById('grp-cancel-edit-btn')?.click();
+                const resetBtnText = document.getElementById('grp-submit-btn')?.textContent || '';
+                const resetName = document.getElementById('grp-name-input')?.value || '';
+
+                // Re-open edit mode and save changes
+                window.openEditGroupModal('{new_group_id}');
+                document.getElementById('grp-name-input').value = 'Рабочее место Инженер 1 (Updated)';
+                document.getElementById('grp-color-input').value = '#a855f7';
+                document.getElementById('grp-vlan-input').value = '35';
+                const submitEv = new Event('submit', {{ bubbles: true, cancelable: true }});
+                document.getElementById('group-form').dispatchEvent(submitEv);
+
+                const updatedGrp = window.store.getGroup('{new_group_id}');
+                const pillText = document.querySelector(`#workplace-filter-bar button[data-group-id="{new_group_id}"]`)?.textContent || '';
+                const pillDot = document.querySelector(`#workplace-filter-bar button[data-group-id="{new_group_id}"] span[style*="background:"]`)?.getAttribute('style') || '';
+
+                return {{
+                    editTitleOk: title.includes('Редактирование группы'),
+                    nameVal,
+                    colorVal,
+                    vlanVal,
+                    btnText: btnText.includes('Сохранить изменения'),
+                    cancelBtnVisible,
+                    resetBtnText: resetBtnText.includes('Создать группу'),
+                    resetName: resetName === '',
+                    updatedName: updatedGrp?.name === 'Рабочее место Инженер 1 (Updated)',
+                    updatedColor: updatedGrp?.color === '#a855f7',
+                    updatedVlan: updatedGrp?.vlan === 35,
+                    pillHasUpdatedName: pillText.includes('Рабочее место Инженер 1 (Updated)'),
+                    pillHasUpdatedColor: pillDot.includes('#a855f7')
+                }};
+            }})()
+        """)
+        record("Edit connection group in modal updates store & filter UI",
+               bool(edit_ui_test and edit_ui_test["editTitleOk"] and edit_ui_test["btnText"] and edit_ui_test["updatedName"] and edit_ui_test["updatedColor"] and edit_ui_test["pillHasUpdatedName"]),
+               str(edit_ui_test))
+
         # -------------------------------------------------------------
         # TEST 5: Cable Patching & SVG Bezier Curves
         # -------------------------------------------------------------
@@ -533,6 +583,36 @@ async def run_test_suite():
         # Check SVG cable path rendered
         svg_cables_count = await client.eval("document.querySelectorAll('#cables-svg .cable-group').length")
         record("SVG Cable Layer renders Bezier curve for patch cord", svg_cables_count >= 1, f"Rendered {svg_cables_count} cable path(s)")
+
+        # Test editing group color live synchronizes cable color, SVG stroke and port glow
+        color_sync_test = await client.eval(f"""
+            (() => {{
+                // Edit group color to #ec4899
+                window.openEditGroupModal('{new_group_id}');
+                document.getElementById('grp-color-input').value = '#ec4899';
+                const submitEv = new Event('submit', {{ bubbles: true, cancelable: true }});
+                document.getElementById('group-form').dispatchEvent(submitEv);
+
+                const updatedGrp = window.store.getGroup('{new_group_id}');
+                const cable = window.store.getCable('{cable_connected}');
+                const svgCore = document.querySelector('#cables-svg .cable-group .cable-core');
+                const strokeColor = svgCore?.getAttribute('stroke') || '';
+                const portSlot = document.querySelector('#rack-container .port-slot[data-port-id="p-1"] .port-jack');
+                const portStyle = portSlot?.getAttribute('style') || '';
+
+                return {{
+                    grpColor: updatedGrp?.color,
+                    cableColor: cable?.color,
+                    strokeColor,
+                    strokeMatches: strokeColor.toLowerCase() === '#ec4899',
+                    cableMatches: cable?.color === '#ec4899',
+                    portGlowMatches: portStyle.includes('#ec4899')
+                }};
+            }})()
+        """)
+        record("Editing group color live synchronizes cable color, SVG stroke & port glow",
+               bool(color_sync_test and color_sync_test["strokeMatches"] and color_sync_test["cableMatches"] and color_sync_test["portGlowMatches"]),
+               str(color_sync_test))
 
         # Select cable to inspect details in drawer
         await client.eval(f"window.store.setSelection({{ type: 'cable', id: '{cable_connected}' }})")
