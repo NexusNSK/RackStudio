@@ -34,7 +34,7 @@ window.openDevicePaletteForUnit = (u) => (window.app ? window.app.openDevicePale
 window.closeDevicePalette = () => (window.app ? window.app.closeDevicePalette() : null);
 window.deleteTemplateFromPalette = (id, e) => (window.app ? window.app.deleteTemplateFromPalette(id, e) : null);
 window.editTemplateFromPalette = (id, e) => (window.app ? window.app.editTemplateFromPalette(id, e) : null);
-window.openTemplateBuilder = () => (window.app ? window.app.templateBuilder.open() : null);
+window.openTemplateBuilder = () => (window.app ? window.app.openTemplateBuilder() : null);
 window.setCableRoutingMode = (mode) => (window.app ? window.app.setCableRoutingMode(mode) : null);
 window.zoomRackIn = () => (window.app ? window.app.stepRackZoom(1) : null);
 window.zoomRackOut = () => (window.app ? window.app.stepRackZoom(-1) : null);
@@ -88,6 +88,7 @@ class App {
     this.updateWorkspaceViewUI();
     this.updateThemeUI();
     this.updateSyncBadge({ status: store.syncStatus, message: store.syncMessage });
+    this.updateAuthUI();
   }
 
   initGlobalWindowExposures() {
@@ -99,7 +100,7 @@ class App {
     window.closeDevicePalette = () => this.closeDevicePalette();
     window.deleteTemplateFromPalette = (id, e) => this.deleteTemplateFromPalette(id, e);
     window.editTemplateFromPalette = (id, e) => this.editTemplateFromPalette(id, e);
-    window.openTemplateBuilder = () => this.templateBuilder.open();
+    window.openTemplateBuilder = () => this.openTemplateBuilder();
     window.openAddRackModal = () => this.openAddRackModal();
     window.openEditRackModal = (id) => this.openEditRackModal(id);
     window.closeRackModal = () => this.closeRackModal();
@@ -122,7 +123,13 @@ class App {
     window.toggleAppTheme = () => this.toggleTheme();
   }
 
+  openTemplateBuilder() {
+    if (!store.canEdit()) return;
+    this.templateBuilder.open();
+  }
+
   deleteRackConfirm(rackId) {
+    if (!store.canEdit()) return;
     const rack = store.getRacks().find(r => r.id === rackId) || store.getActiveRack();
     if (!rack) return;
     if (store.getRacks().length <= 1) {
@@ -141,6 +148,7 @@ class App {
   }
 
   cloneRack(rackId) {
+    if (!store.canEdit()) return null;
     const cloned = store.cloneRack(rackId);
     if (cloned) {
       this.closeRackModal();
@@ -149,12 +157,14 @@ class App {
   }
 
   cloneCurrentRack() {
+    if (!store.canEdit()) return null;
     const targetId = this.editingRackId || store.getActiveRack()?.id;
     return this.cloneRack(targetId);
   }
 
   deleteGroupConfirm(groupId, e) {
     if (e) e.stopPropagation();
+    if (!store.canEdit()) return;
     const grp = store.getGroup(groupId);
     if (!grp) return;
     const cablesInGroup = store.state.cables.filter(c => c.groupId === groupId).length;
@@ -173,6 +183,7 @@ class App {
 
   deleteTemplateFromPalette(tplId, e) {
     if (e) e.stopPropagation();
+    if (!store.canEdit()) return;
     const tpl = store.getTemplate(tplId);
     if (!tpl) return;
     if (confirm(`Удалить устройство "${tpl.name}" (${tpl.vendor}) из пула оборудования?`)) {
@@ -183,6 +194,7 @@ class App {
 
   editTemplateFromPalette(tplId, e) {
     if (e) e.stopPropagation();
+    if (!store.canEdit()) return;
     this.closeDevicePalette();
     this.templateBuilder.open(tplId);
   }
@@ -230,6 +242,7 @@ class App {
     });
 
     document.getElementById('btn-delete-rack-modal')?.addEventListener('click', () => {
+      if (!store.canEdit()) return;
       if (this.editingRackId) {
         const rack = store.getRacks().find(r => r.id === this.editingRackId);
         if (confirm(`Удалить стойку "${rack?.name || 'Стойка'}" и все ее подключения?`)) {
@@ -242,6 +255,7 @@ class App {
     const rackForm = document.getElementById('rack-form');
     rackForm?.addEventListener('submit', (e) => {
       e.preventDefault();
+      if (!store.canEdit()) return;
       const name = document.getElementById('rack-name-input')?.value.trim();
       const uSelect = document.getElementById('rack-u-input')?.value;
       const customU = parseInt(document.getElementById('rack-custom-u-input')?.value, 10);
@@ -280,7 +294,7 @@ class App {
     });
 
     document.getElementById('btn-template-builder')?.addEventListener('click', () => {
-      this.templateBuilder.open();
+      this.openTemplateBuilder();
     });
 
     document.getElementById('btn-export-json')?.addEventListener('click', () => {
@@ -288,10 +302,15 @@ class App {
     });
 
     document.getElementById('btn-import-json')?.addEventListener('click', () => {
+      if (!store.canEdit()) return;
       document.getElementById('import-file-input')?.click();
     });
 
     document.getElementById('import-file-input')?.addEventListener('change', (e) => {
+      if (!store.canEdit()) {
+        e.target.value = '';
+        return;
+      }
       const file = e.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
@@ -417,6 +436,7 @@ class App {
       if (!sel) return;
 
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (!store.canEdit()) return;
         if (this.workspaceView !== 'rack' || store.cableDraft || sel.type !== 'device') return;
         e.preventDefault();
         const dir = e.key === 'ArrowUp' ? 1 : -1;
@@ -429,6 +449,7 @@ class App {
       }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (!store.canEdit()) return;
         if (store.cableDraft) return;
         if (sel.type === 'cable') {
           e.preventDefault();
@@ -586,6 +607,14 @@ class App {
 
   subscribeState() {
     store.subscribe((event, payload) => {
+      if (event === 'user_auth_changed') {
+        this.updateAuthUI();
+        this.rackRenderer.render();
+        this.renderDetailsDrawer();
+        this.renderWorkplaceFilterBadges();
+        return;
+      }
+
       if (event === 'cable_draft_started' || event === 'cable_draft_cancelled' || event === 'cable_draft_finished') {
         this.renderCableDraftBanner();
         this.rackRenderer.updateDraftPortHighlight();
@@ -921,11 +950,81 @@ class App {
     }
   }
 
+  updateAuthUI() {
+    const user = store.currentUser || { authenticated: true, canEdit: true, isStandalone: true };
+    const canEdit = store.canEdit();
+    const isAuth = user.authenticated !== false;
+
+    // 1. Экран блокировки при отсутствии авторизации
+    const lockScreen = document.getElementById('auth-lock-screen');
+    if (lockScreen) {
+      if (!isAuth) {
+        lockScreen.classList.remove('hidden');
+        lockScreen.classList.add('flex');
+        lockScreen.style.display = 'flex';
+      } else {
+        lockScreen.classList.add('hidden');
+        lockScreen.classList.remove('flex');
+        lockScreen.style.display = 'none';
+      }
+    }
+
+    // 2. Класс на body для Read-Only стилей
+    document.body.classList.toggle('mode-readonly', !canEdit);
+
+    // 3. Индикатор пользователя и прав в шапке
+    const badge = document.getElementById('user-session-badge');
+    if (badge) {
+      if (!isAuth) {
+        badge.classList.add('hidden');
+        badge.innerHTML = '';
+      } else if (!canEdit) {
+        badge.classList.remove('hidden');
+        badge.className = 'flex items-center gap-1.5 ml-1.5 px-2.5 py-1 rounded-lg bg-amber-950/60 border border-amber-700/80 text-[11px] select-none font-medium';
+        badge.innerHTML = `
+          <span class="w-2 h-2 rounded-full bg-amber-400 shrink-0 shadow-sm animate-pulse"></span>
+          <span class="text-amber-300 font-medium truncate max-w-[280px]">👁 Режим просмотра: ${user.username || 'Пользователь'} (${user.role || 'TECH_READER'})</span>
+        `;
+      } else if (user.isStandalone) {
+        badge.classList.add('hidden');
+        badge.innerHTML = '';
+      } else {
+        badge.classList.remove('hidden');
+        badge.className = 'hidden sm:flex items-center gap-1.5 ml-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] select-none font-medium';
+        badge.innerHTML = `
+          <span class="w-2 h-2 rounded-full bg-emerald-400 shrink-0 shadow-sm"></span>
+          <span class="text-slate-300 font-medium truncate max-w-[200px]">${user.username || 'Пользователь'} (${user.role || 'TECH'})</span>
+        `;
+      }
+    }
+
+    // 4. Скрытие/отображение элементов редактирования
+    const editButtons = [
+      'btn-add-rack',
+      'btn-sidebar-add-rack',
+      'btn-clone-rack',
+      'btn-edit-rack',
+      'btn-catalog',
+      'btn-template-builder',
+      'btn-add-group',
+      'btn-import-json'
+    ];
+    editButtons.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.classList.toggle('hidden', !canEdit);
+      }
+    });
+
+    this.updateRackSelector();
+  }
+
   updateRackSelector() {
     const rackSelect = document.getElementById('rack-select');
     const racksList = document.getElementById('sidebar-racks-list');
     const racks = store.getRacks();
     const activeRack = store.getActiveRack();
+    const canEdit = store.canEdit();
 
     if (rackSelect) {
       let html = racks.map(r => `
@@ -933,7 +1032,9 @@ class App {
           ${r.name} (${r.uHeight}U)
         </option>
       `).join('');
-      html += '<option value="__add_new__">+ Создать новую стойку...</option>';
+      if (canEdit) {
+        html += '<option value="__add_new__">+ Создать новую стойку...</option>';
+      }
       rackSelect.innerHTML = html;
     }
 
@@ -950,6 +1051,7 @@ class App {
               </div>
               <div class="text-[10px] text-slate-500 font-mono mt-0.5">${r.uHeight}U • ${r.installedDevices.length} устр.</div>
             </button>
+            ${canEdit ? `
             <div class="flex items-center gap-1 shrink-0">
               <button class="p-1 text-slate-400 hover:text-cyan-300 rounded hover:bg-slate-800 transition"
                       title="Клонировать стойку"
@@ -967,7 +1069,7 @@ class App {
                       onclick="window.deleteRackConfirm('${r.id}'); event.stopPropagation();">
                 <svg class="w-3.5 h-3.5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
               </button>` : ''}
-            </div>
+            </div>` : ''}
           </div>
         `;
       }).join('');
@@ -975,6 +1077,7 @@ class App {
   }
 
   openAddRackModal() {
+    if (!store.canEdit()) return;
     this.editingRackId = null;
     const modal = document.getElementById('rack-modal');
     if (!modal) return;
@@ -1009,15 +1112,22 @@ class App {
     const modal = document.getElementById('rack-modal');
     if (!modal) return;
 
+    const canEdit = store.canEdit();
+
     const titleEl = document.getElementById('rack-modal-title');
-    if (titleEl) titleEl.textContent = `Настройки: ${rack.name}`;
+    if (titleEl) titleEl.textContent = canEdit ? `Настройки: ${rack.name}` : `Свойства: ${rack.name}`;
 
     const nameInput = document.getElementById('rack-name-input');
-    if (nameInput) nameInput.value = rack.name;
+    if (nameInput) {
+      nameInput.value = rack.name;
+      nameInput.disabled = !canEdit;
+    }
 
     const uInput = document.getElementById('rack-u-input');
+    if (uInput) uInput.disabled = !canEdit;
     const customWrap = document.getElementById('rack-custom-u-wrap');
     const customUInput = document.getElementById('rack-custom-u-input');
+    if (customUInput) customUInput.disabled = !canEdit;
 
     if (['12', '18', '24', '42', '48'].includes(String(rack.uHeight))) {
       if (uInput) uInput.value = String(rack.uHeight);
@@ -1029,18 +1139,32 @@ class App {
     }
 
     const modelInput = document.getElementById('rack-model-input');
-    if (modelInput && rack.model) modelInput.value = rack.model;
+    if (modelInput) {
+      modelInput.value = rack.model || '';
+      modelInput.disabled = !canEdit;
+    }
 
     const delBtn = document.getElementById('btn-delete-rack-modal');
     if (delBtn) {
-      if (store.getRacks().length > 1) {
+      if (canEdit && store.getRacks().length > 1) {
         delBtn.classList.remove('hidden');
       } else {
         delBtn.classList.add('hidden');
       }
     }
     const cloneBtn = document.getElementById('btn-clone-rack-modal');
-    if (cloneBtn) cloneBtn.classList.remove('hidden');
+    if (cloneBtn) {
+      if (canEdit) {
+        cloneBtn.classList.remove('hidden');
+      } else {
+        cloneBtn.classList.add('hidden');
+      }
+    }
+
+    const submitBtn = modal.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.classList.toggle('hidden', !canEdit);
+    }
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');
@@ -1090,6 +1214,7 @@ class App {
             <span class="truncate max-w-[140px]">${g.name}</span>
             <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-900/80 font-mono" style="color:${g.color}">${count}</span>
           </button>
+          ${store.canEdit() ? `
           <button type="button" class="px-1.5 py-1.5 text-slate-500 hover:text-cyan-400 bg-slate-850 hover:bg-cyan-950/80 transition text-xs border-l border-slate-700/50"
                   title="Редактировать группу '${g.name}'"
                   onclick="window.openEditGroupModal('${g.id}', event)">
@@ -1102,7 +1227,7 @@ class App {
                   title="Удалить группу '${g.name}'"
                   onclick="window.deleteGroupConfirm('${g.id}', event)">
             ✕
-          </button>
+          </button>` : ''}
         </div>
       `;
     });
@@ -1118,6 +1243,7 @@ class App {
   }
 
   openDevicePalette(targetU = null) {
+    if (!store.canEdit()) return;
     this.targetPaletteU = targetU;
     const modal = document.getElementById('palette-modal');
     const listContainer = document.getElementById('palette-devices-list');
@@ -1272,6 +1398,7 @@ class App {
 
   handleGroupFormSubmit(e) {
     if (e) e.preventDefault();
+    if (!store.canEdit()) return;
     const name = document.getElementById('grp-name-input')?.value.trim();
     const color = document.getElementById('grp-color-input')?.value || '#00d2ff';
     const desc = document.getElementById('grp-desc-input')?.value.trim() || '';
@@ -1289,6 +1416,7 @@ class App {
 
   openEditGroupModal(groupId, e) {
     if (e) e.stopPropagation();
+    if (!store.canEdit()) return;
     const grp = store.getGroup(groupId);
     if (!grp) return;
 
@@ -1331,6 +1459,7 @@ class App {
   }
 
   openAddGroupModal(editGroupId = null) {
+    if (!store.canEdit()) return;
     if (editGroupId) {
       this.openEditGroupModal(editGroupId);
       return;
@@ -1385,6 +1514,7 @@ class App {
       const isInOtherRack = rack.id !== store.getActiveRack()?.id;
       const canMoveUp = store.findNearestFreeSlot(dev.id, 1) !== null;
       const canMoveDown = store.findNearestFreeSlot(dev.id, -1) !== null;
+      const canEdit = store.canEdit();
 
       const devCables = store.state.cables.filter(c => c.from.deviceId === dev.id || c.to.deviceId === dev.id);
 
@@ -1396,6 +1526,7 @@ class App {
                 <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">U${dev.uPosition} • ${tpl?.uHeight || 1}U</span>
                 ${isInOtherRack ? `<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-700">${rack.name}</span>` : ''}
               </div>
+              ${canEdit ? `
               <div class="flex items-center gap-1" title="Переместить устройство (клавиши ↑ / ↓)">
                 <button id="drawer-btn-move-up" type="button" ${canMoveUp ? '' : 'disabled'}
                         class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-mono disabled:opacity-35 disabled:pointer-events-none transition"
@@ -1403,7 +1534,7 @@ class App {
                 <button id="drawer-btn-move-down" type="button" ${canMoveDown ? '' : 'disabled'}
                         class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-mono disabled:opacity-35 disabled:pointer-events-none transition"
                         onclick="window.store.nudgeDevice('${dev.id}', -1)">↓</button>
-              </div>
+              </div>` : ''}
             </div>
             <h3 class="text-base font-bold text-slate-100 mt-1.5">${dev.customName}</h3>
             <p class="text-xs text-slate-400">${tpl?.vendor || 'Vendor'} • ${tpl?.category || 'Device'}</p>
@@ -1422,24 +1553,25 @@ class App {
                 <span>💻 Открыть CLI конфиг</span>
               </button>
             ` : ''}
+            ${canEdit ? `
             <button class="px-3 py-2 bg-red-950 hover:bg-red-900 text-red-300 border border-red-800 rounded-lg text-xs transition"
                     title="Удалить из стойки (Delete)" onclick="store.removeDevice('${dev.id}')">
               Удалить
-            </button>
+            </button>` : ''}
           </div>
 
           <div class="space-y-3 bg-slate-800/60 p-3 rounded-lg border border-slate-700/80 text-xs">
             <div>
               <label class="block text-slate-400 text-[11px] mb-1">Имя устройства</label>
-              <input type="text" id="drawer-dev-name" value="${dev.customName}" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs">
+              <input type="text" id="drawer-dev-name" value="${dev.customName}" ${canEdit ? '' : 'disabled'} class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs disabled:opacity-75 disabled:cursor-not-allowed">
             </div>
             <div>
               <label class="block text-slate-400 text-[11px] mb-1">IP-адрес управления</label>
-              <input type="text" id="drawer-dev-ip" value="${dev.ipAddress || ''}" placeholder="192.168.1.xxx" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs font-mono">
+              <input type="text" id="drawer-dev-ip" value="${dev.ipAddress || ''}" placeholder="192.168.1.xxx" ${canEdit ? '' : 'disabled'} class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs font-mono disabled:opacity-75 disabled:cursor-not-allowed">
             </div>
             <div>
               <label class="block text-slate-400 text-[11px] mb-1">Заметки / Описание</label>
-              <textarea id="drawer-dev-notes" rows="2" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs">${dev.notes || ''}</textarea>
+              <textarea id="drawer-dev-notes" rows="2" ${canEdit ? '' : 'disabled'} class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs disabled:opacity-75 disabled:cursor-not-allowed">${dev.notes || ''}</textarea>
             </div>
           </div>
 
@@ -1470,8 +1602,9 @@ class App {
                         <span class="text-[10px] font-mono text-slate-500">${c.lengthM}м</span>
                       </div>
                     </button>
+                    ${canEdit ? `
                     <button class="text-red-400 hover:text-red-300 text-xs px-1.5 py-0.5 bg-red-950/60 rounded shrink-0"
-                            onclick="store.removeCable('${c.id}')">✕</button>
+                            onclick="store.removeCable('${c.id}')">✕</button>` : ''}
                   </div>
                 `;
               }).join('')}
@@ -1481,15 +1614,17 @@ class App {
         </div>
       `;
 
-      content.querySelector('#drawer-dev-name')?.addEventListener('input', (e) => {
-        store.updateDevice(dev.id, { customName: e.target.value });
-      });
-      content.querySelector('#drawer-dev-ip')?.addEventListener('input', (e) => {
-        store.updateDevice(dev.id, { ipAddress: e.target.value });
-      });
-      content.querySelector('#drawer-dev-notes')?.addEventListener('input', (e) => {
-        store.updateDevice(dev.id, { notes: e.target.value });
-      });
+      if (canEdit) {
+        content.querySelector('#drawer-dev-name')?.addEventListener('input', (e) => {
+          store.updateDevice(dev.id, { customName: e.target.value });
+        });
+        content.querySelector('#drawer-dev-ip')?.addEventListener('input', (e) => {
+          store.updateDevice(dev.id, { ipAddress: e.target.value });
+        });
+        content.querySelector('#drawer-dev-notes')?.addEventListener('input', (e) => {
+          store.updateDevice(dev.id, { notes: e.target.value });
+        });
+      }
 
     } else if (sel.type === 'cable') {
       const cable = store.state.cables.find(c => c.id === sel.id);
@@ -1505,6 +1640,7 @@ class App {
       const groups = store.getGroupsForCable(cable);
       const estimate = store.getCableLengthEstimate(cable);
       const isLengthAuto = cable.lengthAuto === true && !interRack;
+      const canEdit = store.canEdit();
 
       content.innerHTML = `
         <div class="space-y-4">
@@ -1530,7 +1666,7 @@ class App {
           <div class="space-y-3 bg-slate-800/60 p-3 rounded-lg border border-slate-700/80 text-xs">
             <div>
               <label class="block text-slate-400 text-[11px] mb-1 font-semibold text-cyan-300">Группа рабочего места / Сервис</label>
-              <select id="drawer-cable-group" class="w-full bg-slate-900 border border-cyan-700/80 rounded px-2.5 py-1.5 text-slate-100 text-xs focus:ring-2 focus:ring-cyan-400">
+              <select id="drawer-cable-group" ${canEdit ? '' : 'disabled'} class="w-full bg-slate-900 border border-cyan-700/80 rounded px-2.5 py-1.5 text-slate-100 text-xs focus:ring-2 focus:ring-cyan-400 disabled:opacity-75 disabled:cursor-not-allowed">
                 <option value="">(Без группы / Инфраструктура)</option>
                 ${groups.map(g => `
                   <option value="${g.id}" ${g.id === cable.groupId ? 'selected' : ''}>
@@ -1542,25 +1678,25 @@ class App {
 
             <div>
               <label class="block text-slate-400 text-[11px] mb-1">Метка / Назначение</label>
-              <input type="text" id="drawer-cable-label" value="${cable.label || ''}" placeholder="Например: Uplink 10G Eltex" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs">
+              <input type="text" id="drawer-cable-label" value="${cable.label || ''}" placeholder="Например: Uplink 10G Eltex" ${canEdit ? '' : 'disabled'} class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs disabled:opacity-75 disabled:cursor-not-allowed">
             </div>
 
             <div class="grid grid-cols-2 gap-2">
               <div>
                 <label class="block text-slate-400 text-[11px] mb-1">Цвет кабеля</label>
-                <input type="color" id="drawer-cable-color" value="${cable.color || '#3b82f6'}" class="w-full h-8 bg-slate-900 border border-slate-700 rounded cursor-pointer p-0.5">
+                <input type="color" id="drawer-cable-color" value="${cable.color || '#3b82f6'}" ${canEdit ? '' : 'disabled'} class="w-full h-8 bg-slate-900 border border-slate-700 rounded cursor-pointer p-0.5 disabled:opacity-75 disabled:cursor-not-allowed">
               </div>
               <div>
                 <div class="flex items-center justify-between mb-1">
                   <label class="text-slate-400 text-[11px]">Длина (м)</label>
                   ${!interRack ? `
                     <label class="flex items-center gap-1 text-[10px] text-cyan-300 cursor-pointer" title="Автоматический геометрический подбор длины">
-                      <input type="checkbox" id="drawer-cable-length-auto" ${isLengthAuto ? 'checked' : ''} class="rounded border-slate-700 bg-slate-900 text-cyan-500">
+                      <input type="checkbox" id="drawer-cable-length-auto" ${isLengthAuto ? 'checked' : ''} ${canEdit ? '' : 'disabled'} class="rounded border-slate-700 bg-slate-900 text-cyan-500 disabled:opacity-75 disabled:cursor-not-allowed">
                       <span>Авто</span>
                     </label>
                   ` : ''}
                 </div>
-                <input type="number" step="0.25" min="0.25" id="drawer-cable-len" value="${cable.lengthM || 0.5}" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs">
+                <input type="number" step="0.25" min="0.25" id="drawer-cable-len" value="${cable.lengthM || 0.5}" ${canEdit ? '' : 'disabled'} class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs disabled:opacity-75 disabled:cursor-not-allowed">
               </div>
             </div>
 
@@ -1572,7 +1708,7 @@ class App {
 
             <div>
               <label class="block text-slate-400 text-[11px] mb-1">Тип кабеля</label>
-              <select id="drawer-cable-type" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs">
+              <select id="drawer-cable-type" ${canEdit ? '' : 'disabled'} class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs disabled:opacity-75 disabled:cursor-not-allowed">
                 <option value="Cat6 UTP" ${cable.type === 'Cat6 UTP' ? 'selected' : ''}>Медь Cat6 UTP</option>
                 <option value="Cat6A STP" ${cable.type === 'Cat6A STP' ? 'selected' : ''}>Медь Cat6A STP Shielded</option>
                 <option value="10G SFP+ DAC" ${cable.type === '10G SFP+ DAC' ? 'selected' : ''}>Прямое подключение 10G DAC</option>
@@ -1582,58 +1718,62 @@ class App {
             </div>
           </div>
 
+          ${canEdit ? `
           <button class="w-full py-2 bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-800 rounded-lg text-xs font-semibold transition"
                   onclick="store.removeCable('${cable.id}')">
             Удалить кабель
-          </button>
+          </button>` : ''}
         </div>
       `;
 
-      content.querySelector('#drawer-cable-group')?.addEventListener('change', (e) => {
-        const gid = e.target.value;
-        const grp = store.getGroup(gid);
-        const newColor = grp ? grp.color : cable.color;
-        const colorInput = content.querySelector('#drawer-cable-color');
-        if (colorInput) colorInput.value = newColor;
-        store.updateCable(cable.id, {
-          groupId: gid,
-          color: newColor
+      if (canEdit) {
+        content.querySelector('#drawer-cable-group')?.addEventListener('change', (e) => {
+          const gid = e.target.value;
+          const grp = store.getGroup(gid);
+          const newColor = grp ? grp.color : cable.color;
+          const colorInput = content.querySelector('#drawer-cable-color');
+          if (colorInput) colorInput.value = newColor;
+          store.updateCable(cable.id, {
+            groupId: gid,
+            color: newColor
+          });
         });
-      });
 
-      content.querySelector('#drawer-cable-label')?.addEventListener('input', (e) => {
-        store.updateCable(cable.id, { label: e.target.value });
-      });
-
-      content.querySelector('#drawer-cable-color')?.addEventListener('input', (e) => {
-        store.updateCable(cable.id, { color: e.target.value });
-      });
-
-      content.querySelector('#drawer-cable-length-auto')?.addEventListener('change', (e) => {
-        const updated = store.setCableLengthAuto(cable.id, e.target.checked);
-        const lenInput = content.querySelector('#drawer-cable-len');
-        if (lenInput && updated) {
-          lenInput.value = updated.lengthM;
-        }
-      });
-
-      content.querySelector('#drawer-cable-len')?.addEventListener('input', (e) => {
-        const autoChk = content.querySelector('#drawer-cable-length-auto');
-        if (autoChk) autoChk.checked = false;
-        store.updateCable(cable.id, {
-          lengthM: parseFloat(e.target.value) || 0.5,
-          lengthAuto: false
+        content.querySelector('#drawer-cable-label')?.addEventListener('input', (e) => {
+          store.updateCable(cable.id, { label: e.target.value });
         });
-      });
 
-      content.querySelector('#drawer-cable-type')?.addEventListener('change', (e) => {
-        store.updateCable(cable.id, { type: e.target.value });
-      });
+        content.querySelector('#drawer-cable-color')?.addEventListener('input', (e) => {
+          store.updateCable(cable.id, { color: e.target.value });
+        });
+
+        content.querySelector('#drawer-cable-length-auto')?.addEventListener('change', (e) => {
+          const updated = store.setCableLengthAuto(cable.id, e.target.checked);
+          const lenInput = content.querySelector('#drawer-cable-len');
+          if (lenInput && updated) {
+            lenInput.value = updated.lengthM;
+          }
+        });
+
+        content.querySelector('#drawer-cable-len')?.addEventListener('input', (e) => {
+          const autoChk = content.querySelector('#drawer-cable-length-auto');
+          if (autoChk) autoChk.checked = false;
+          store.updateCable(cable.id, {
+            lengthM: parseFloat(e.target.value) || 0.5,
+            lengthAuto: false
+          });
+        });
+
+        content.querySelector('#drawer-cable-type')?.addEventListener('change', (e) => {
+          store.updateCable(cable.id, { type: e.target.value });
+        });
+      }
     } else if (sel.type === 'cable_bundle') {
       const bundleCables = (sel.cableIds || [])
         .map(cid => store.state.cables.find(c => c.id === cid))
         .filter(Boolean);
       const grp = sel.groupId ? store.getGroup(sel.groupId) : null;
+      const canEdit = store.canEdit();
 
       content.innerHTML = `
         <div class="space-y-4">
@@ -1658,8 +1798,9 @@ class App {
                     </div>
                     <div class="text-[10px] text-slate-400 font-mono mt-0.5">${c.type} • ${c.lengthM}м${c.label ? ` • ${c.label}` : ''}</div>
                   </button>
+                  ${canEdit ? `
                   <button class="text-red-400 hover:text-red-300 text-xs px-1.5 py-0.5 bg-red-950/60 rounded shrink-0"
-                          onclick="store.removeCable('${c.id}')">✕</button>
+                          onclick="store.removeCable('${c.id}')">✕</button>` : ''}
                 </div>
               `;
             }).join('')}

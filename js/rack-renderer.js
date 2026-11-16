@@ -111,10 +111,11 @@ export class RackRenderer {
           <div class="slot-empty h-[54px] border-b border-dashed border-slate-800/80 flex items-center justify-between px-4 transition-colors hover:bg-slate-800/30 group"
                data-u="${u}">
             <span class="text-[10px] font-mono text-slate-600 group-hover:text-slate-400">U${u} [Пустой слот]</span>
+            ${store.canEdit() ? `
             <button class="opacity-0 group-hover:opacity-100 text-[10px] text-cyan-400 bg-cyan-950/60 hover:bg-cyan-900 border border-cyan-800/60 px-2 py-0.5 rounded transition"
                     onclick="window.openDevicePaletteForUnit(${u})">
               + Установить
-            </button>
+            </button>` : ''}
           </div>
         `;
       }
@@ -186,7 +187,7 @@ export class RackRenderer {
     }
 
     return `
-      <div class="installed-device relative select-none cursor-grab transition-all ${isSelected ? 'ring-2 ring-cyan-400' : ''}"
+      <div class="installed-device relative select-none ${store.canEdit() ? 'cursor-grab' : 'cursor-pointer'} transition-all ${isSelected ? 'ring-2 ring-cyan-400' : ''}"
            style="height: ${heightPx}px; ${faceStyle}"
            data-device-id="${device.id}"
            data-u="${device.uPosition}">
@@ -296,7 +297,7 @@ export class RackRenderer {
       : (isSilver ? 'text-slate-700 group-hover:text-cyan-700' : 'text-slate-400 group-hover:text-cyan-300');
 
     return `
-      <div class="port-slot absolute flex items-center justify-center -translate-x-1/2 -translate-y-1/2 cursor-crosshair group transition-all hover:z-40 ${isDraftSource ? 'port-draft-source' : ''}"
+      <div class="port-slot absolute flex items-center justify-center -translate-x-1/2 -translate-y-1/2 ${store.canEdit() ? 'cursor-crosshair' : 'cursor-pointer'} group transition-all hover:z-40 ${isDraftSource ? 'port-draft-source' : ''}"
            style="left: ${port.x}%; top: ${port.y}%;"
            title="${port.name}${port.speed ? ` (${port.speed})` : ''}${remoteTitleSuffix}"
            data-device-id="${device.id}"
@@ -387,6 +388,15 @@ export class RackRenderer {
         const deviceId = p.dataset.deviceId;
         const portId = p.dataset.portId;
 
+        // В режиме только чтения клик по порту выбирает подключенный кабель, но не начинает трассировку
+        if (!store.canEdit()) {
+          const existing = store.getCableByPort(deviceId, portId);
+          if (existing) {
+            store.setSelection({ type: 'cable', id: existing.id, data: existing });
+          }
+          return;
+        }
+
         if (store.cableDraft) {
           store.finishCableDraft(deviceId, portId);
         } else {
@@ -415,6 +425,7 @@ export class RackRenderer {
   }
 
   handleDragStart(e) {
+    if (!store.canEdit()) return;
     if (e.button !== 0 || store.cableDraft) return;
     if (e.target.closest('.port-slot') || e.target.closest('button')) return;
 

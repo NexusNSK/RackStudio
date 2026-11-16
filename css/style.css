@@ -723,3 +723,14 @@ html[data-theme="light"] #cable-tooltip {
     print-color-adjust: exact !important;
   }
 }
+
+/* Read-Only Mode (BrigApp RBAC) */
+body.mode-readonly .installed-device {
+  cursor: pointer !important;
+}
+body.mode-readonly .slot-empty button {
+  display: none !important;
+}
+body.mode-readonly .port-slot {
+  cursor: pointer !important;
+}

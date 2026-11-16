@@ -2283,6 +2283,273 @@ async def run_test_suite():
         record("Theme toggle cleanly restores Dark Theme", bool(back_to_dark))
 
         # -------------------------------------------------------------
+        # TEST 17: BrigApp Authorization & RBAC Read-Only Mode
+        # -------------------------------------------------------------
+        print("\n--- Test Suite 17: BrigApp Authorization & RBAC Read-Only Mode ---")
+
+        # 1. Standalone mode default state
+        standalone_check = await client.eval("""
+            (() => {
+                const canEdit = window.store.canEdit();
+                const isReadOnly = window.store.isReadOnly();
+                const bodyReadonly = document.body.classList.contains('mode-readonly');
+                const lockHidden = document.getElementById('auth-lock-screen')?.classList.contains('hidden');
+                const catalogVisible = !document.getElementById('btn-catalog')?.classList.contains('hidden');
+                const addRackVisible = !document.getElementById('btn-add-rack')?.classList.contains('hidden');
+                const addGroupVisible = !document.getElementById('btn-add-group')?.classList.contains('hidden');
+                const tplBuilderVisible = !document.getElementById('btn-template-builder')?.classList.contains('hidden');
+                return {
+                    canEdit,
+                    isReadOnly,
+                    bodyReadonly,
+                    lockHidden,
+                    catalogVisible,
+                    addRackVisible,
+                    addGroupVisible,
+                    tplBuilderVisible
+                };
+            })()
+        """)
+        record(
+            "Default standalone mode allows editing and keeps authoring controls visible",
+            bool(
+                standalone_check
+                and standalone_check["canEdit"]
+                and not standalone_check["isReadOnly"]
+                and not standalone_check["bodyReadonly"]
+                and standalone_check["lockHidden"]
+                and standalone_check["catalogVisible"]
+                and standalone_check["addRackVisible"]
+                and standalone_check["addGroupVisible"]
+                and standalone_check["tplBuilderVisible"]
+            ),
+            str(standalone_check)
+        )
+
+        # 2. Simulate BrigApp TECH_READER user (Read-Only mode)
+        await client.eval("window.store.setUserProfile({ authenticated: true, username: 'alex_tech', role: 'TECH_READER', canEdit: false });")
+        await asyncio.sleep(0.15)
+
+        readonly_check = await client.eval("""
+            (() => {
+                const canEdit = window.store.canEdit();
+                const isReadOnly = window.store.isReadOnly();
+                const bodyReadonly = document.body.classList.contains('mode-readonly');
+                const badge = document.getElementById('user-session-badge');
+                const badgeText = badge?.textContent?.trim() || '';
+                const badgeVisible = badge && !badge.classList.contains('hidden');
+                
+                const catalogHidden = document.getElementById('btn-catalog')?.classList.contains('hidden');
+                const addRackHidden = document.getElementById('btn-add-rack')?.classList.contains('hidden');
+                const addGroupHidden = document.getElementById('btn-add-group')?.classList.contains('hidden');
+                const tplBuilderHidden = document.getElementById('btn-template-builder')?.classList.contains('hidden');
+                const cloneRackHidden = document.getElementById('btn-clone-rack')?.classList.contains('hidden');
+                const editRackHidden = document.getElementById('btn-edit-rack')?.classList.contains('hidden');
+                const importJsonHidden = document.getElementById('btn-import-json')?.classList.contains('hidden');
+
+                // Empty slots should not have "+ Установить" button
+                const slotButtons = document.querySelectorAll('.slot-empty button').length;
+
+                // Workplace group pills should not have edit or delete buttons
+                const groupPillButtons = document.querySelectorAll('#workplace-filter-bar .group\\\\/pill button:not(.filter-pill)').length;
+
+                return {
+                    canEdit,
+                    isReadOnly,
+                    bodyReadonly,
+                    badgeVisible,
+                    badgeText,
+                    hasAlex: badgeText.includes('alex_tech'),
+                    hasRole: badgeText.includes('TECH_READER'),
+                    hasModeText: badgeText.includes('Режим просмотра'),
+                    catalogHidden,
+                    addRackHidden,
+                    addGroupHidden,
+                    tplBuilderHidden,
+                    cloneRackHidden,
+                    editRackHidden,
+                    importJsonHidden,
+                    slotButtons,
+                    groupPillButtons
+                };
+            })()
+        """)
+        record(
+            "TECH_READER activates Read-Only mode: session badge displays user & role, edit buttons are hidden",
+            bool(
+                readonly_check
+                and not readonly_check["canEdit"]
+                and readonly_check["isReadOnly"]
+                and readonly_check["bodyReadonly"]
+                and readonly_check["badgeVisible"]
+                and readonly_check["hasAlex"]
+                and readonly_check["hasRole"]
+                and readonly_check["hasModeText"]
+                and readonly_check["catalogHidden"]
+                and readonly_check["addRackHidden"]
+                and readonly_check["addGroupHidden"]
+                and readonly_check["tplBuilderHidden"]
+                and readonly_check["cloneRackHidden"]
+                and readonly_check["editRackHidden"]
+                and readonly_check["importJsonHidden"]
+                and readonly_check["slotButtons"] == 0
+                and readonly_check["groupPillButtons"] == 0
+            ),
+            str(readonly_check)
+        )
+
+        # 3. Test port clicking & drag-and-drop suppression in Read-Only mode
+        interaction_check = await client.eval("""
+            (() => {
+                // Clicking an empty port should NOT start cable draft
+                const port = document.querySelector('.port-slot');
+                if (port) {
+                    port.click();
+                }
+                const hasDraft = !!window.store.cableDraft;
+
+                // Drag state should remain null
+                const dragState = window.app.rackRenderer?.dragState;
+
+                return {
+                    hasDraft,
+                    hasDragState: !!dragState
+                };
+            })()
+        """)
+        record(
+            "Read-Only mode prevents drafting cables and dragging devices",
+            bool(interaction_check and not interaction_check["hasDraft"] and not interaction_check["hasDragState"]),
+            str(interaction_check)
+        )
+
+        # 4. Test Details Drawer in Read-Only mode (disabled inputs, hidden delete buttons)
+        drawer_readonly_check = await client.eval("""
+            (() => {
+                const dev = window.store.getActiveRack()?.installedDevices?.[0];
+                if (dev) {
+                    window.store.setSelection({ type: 'device', id: dev.id, data: dev });
+                }
+                const devNameDisabled = document.getElementById('drawer-dev-name')?.disabled;
+                const devIpDisabled = document.getElementById('drawer-dev-ip')?.disabled;
+                const devNotesDisabled = document.getElementById('drawer-dev-notes')?.disabled;
+                const hasDeleteDevBtn = !!document.querySelector('#details-content button[onclick*="removeDevice"]');
+                const hasNudgeUpBtn = !!document.getElementById('drawer-btn-move-up');
+
+                // Now test cable selection
+                const cable = window.store.state.cables?.[0];
+                if (cable) {
+                    window.store.setSelection({ type: 'cable', id: cable.id, data: cable });
+                }
+                const cableGrpDisabled = document.getElementById('drawer-cable-group')?.disabled;
+                const cableLabelDisabled = document.getElementById('drawer-cable-label')?.disabled;
+                const hasDeleteCableBtn = !!document.querySelector('#details-content button[onclick*="removeCable"]');
+
+                return {
+                    devNameDisabled,
+                    devIpDisabled,
+                    devNotesDisabled,
+                    hasDeleteDevBtn,
+                    hasNudgeUpBtn,
+                    cableGrpDisabled,
+                    cableLabelDisabled,
+                    hasDeleteCableBtn
+                };
+            })()
+        """)
+        record(
+            "Details Drawer disables input fields and omits delete buttons in Read-Only mode",
+            bool(
+                drawer_readonly_check
+                and drawer_readonly_check["devNameDisabled"]
+                and drawer_readonly_check["devIpDisabled"]
+                and drawer_readonly_check["devNotesDisabled"]
+                and not drawer_readonly_check["hasDeleteDevBtn"]
+                and not drawer_readonly_check["hasNudgeUpBtn"]
+                and drawer_readonly_check["cableGrpDisabled"]
+                and drawer_readonly_check["cableLabelDisabled"]
+                and not drawer_readonly_check["hasDeleteCableBtn"]
+            ),
+            str(drawer_readonly_check)
+        )
+
+        # 5. Verify View-only capabilities remain fully functional in Read-Only mode (Topology & PDF Print)
+        viewing_check = await client.eval("""
+            (() => {
+                // Topology view
+                window.app.setWorkspaceView('topology');
+                const topoVisible = !document.getElementById('topology-viewport')?.classList.contains('hidden');
+                const hasTopoSvg = !!document.getElementById('topology-svg');
+                window.app.setWorkspaceView('rack');
+
+                // Print passport modal
+                window.app.printPassport?.open();
+                const printModalOpen = !document.getElementById('print-modal')?.classList.contains('hidden');
+                window.app.printPassport?.close();
+                const printModalClosed = document.getElementById('print-modal')?.classList.contains('hidden');
+
+                return {
+                    topoVisible,
+                    hasTopoSvg,
+                    printModalOpen,
+                    printModalClosed
+                };
+            })()
+        """)
+        record(
+            "Read-Only mode maintains 100% operation for Topology view and PDF Passport export",
+            bool(
+                viewing_check
+                and viewing_check["topoVisible"]
+                and viewing_check["hasTopoSvg"]
+                and viewing_check["printModalOpen"]
+                and viewing_check["printModalClosed"]
+            ),
+            str(viewing_check)
+        )
+
+        # 6. Simulate unauthenticated state (Lock Screen)
+        await client.eval("window.store.setUserProfile({ authenticated: false });")
+        await asyncio.sleep(0.15)
+
+        lock_check = await client.eval("""
+            (() => {
+                const lock = document.getElementById('auth-lock-screen');
+                const isVisible = lock && !lock.classList.contains('hidden') && lock.style.display === 'flex';
+                const hasTitle = lock?.textContent?.includes('Доступ ограничен');
+                const hasLoginBtn = lock?.querySelector('#btn-auth-login') !== null;
+                const btnText = lock?.querySelector('#btn-auth-login')?.textContent?.trim();
+                return {
+                    isVisible,
+                    hasTitle,
+                    hasLoginBtn,
+                    btnText
+                };
+            })()
+        """)
+        record(
+            "Unauthenticated access displays full-screen Lock Screen with BrigApp login button",
+            bool(lock_check and lock_check["isVisible"] and lock_check["hasTitle"] and lock_check["hasLoginBtn"] and 'Войти в BrigApp' in (lock_check["btnText"] or '')),
+            str(lock_check)
+        )
+
+        # 7. Restore standalone mode
+        await client.eval("window.store.setUserProfile(null);")
+        await asyncio.sleep(0.15)
+        restored_check = await client.eval("""
+            (() => ({
+                canEdit: window.store.canEdit(),
+                lockHidden: document.getElementById('auth-lock-screen')?.classList.contains('hidden'),
+                catalogVisible: !document.getElementById('btn-catalog')?.classList.contains('hidden')
+            }))()
+        """)
+        record(
+            "Resetting user profile cleanly restores standalone mode and authoring capabilities",
+            bool(restored_check and restored_check["canEdit"] and restored_check["lockHidden"] and restored_check["catalogVisible"]),
+            str(restored_check)
+        )
+
+        # -------------------------------------------------------------
         # TEST 9: Export / Import JSON & Reset
         # -------------------------------------------------------------
         print("\n--- Test Suite 9: JSON Persistence & Export ---")

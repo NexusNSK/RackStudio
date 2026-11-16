@@ -83,6 +83,9 @@
           <span id="sync-dot" class="w-2 h-2 rounded-full bg-slate-500"></span>
           <span id="sync-text" class="text-slate-400">Локально</span>
         </div>
+
+        <!-- User Session & RBAC Badge -->
+        <div id="user-session-badge" class="hidden sm:flex items-center gap-1.5 ml-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] select-none font-medium"></div>
       </div>
     </div>
 
@@ -741,6 +744,22 @@
 
   <!-- Hidden Print-only Mount Root -->
   <div id="print-report-root" class="hidden"></div>
+
+  <!-- ================= AUTH LOCK SCREEN (BrigApp RBAC) ================= -->
+  <div id="auth-lock-screen" class="hidden fixed inset-0 z-[9999] bg-[#0a0c10]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center select-none">
+    <div class="max-w-md w-full bg-slate-900/95 border border-slate-800 rounded-2xl p-8 shadow-2xl flex flex-col items-center">
+      <div class="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-3xl mb-4 text-amber-400 shadow-lg shadow-amber-500/10">
+        🔒
+      </div>
+      <h2 class="text-xl font-bold text-slate-100 mb-2">Доступ ограничен</h2>
+      <p class="text-xs text-slate-400 mb-6 leading-relaxed">
+        Для работы с серверными стойками необходимо войти в систему <span class="text-cyan-400 font-semibold">BrigApp</span> под учётной записью инженера или администратора.
+      </p>
+      <button id="btn-auth-login" onclick="if(window.top){window.top.location.href='/login';}else{window.location.href='/login';}" class="w-full py-2.5 px-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-semibold text-sm rounded-xl shadow-lg shadow-cyan-600/25 transition">
+        Войти в BrigApp
+      </button>
+    </div>
+  </div>
 
   <!-- Main Application Script (ESM) -->
   <script type="module" src="js/app.js?v=14"></script>

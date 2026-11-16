@@ -27,6 +27,15 @@ class StateStore {
     this.cableDraft = null;
     this.selectedEntity = null;
 
+    // Авторизация и разграничение прав доступа (BrigApp RBAC)
+    this.currentUser = {
+      authenticated: true,
+      username: 'Локальный режим',
+      role: 'ADMIN',
+      canEdit: true,
+      isStandalone: true
+    };
+
     // Централизованная синхронизация с сервером
     this.apiBase = '/rackstudio-api';
     this.isServerAvailable = false;
@@ -147,17 +156,90 @@ class StateStore {
     }
   }
 
+  canEdit() {
+    return this.currentUser ? Boolean(this.currentUser.canEdit) : true;
+  }
+
+  isReadOnly() {
+    return !this.canEdit();
+  }
+
+  setUserProfile(profile) {
+    if (!profile) {
+      this.currentUser = {
+        authenticated: true,
+        username: 'Локальный режим',
+        role: 'ADMIN',
+        canEdit: true,
+        isStandalone: true
+      };
+    } else {
+      this.currentUser = {
+        authenticated: profile.authenticated !== false,
+        username: profile.username || 'Пользователь',
+        role: profile.role || 'USER',
+        canEdit: Boolean(profile.canEdit),
+        isStandalone: Boolean(profile.isStandalone)
+      };
+    }
+    this.notifyOnly('user_auth_changed', this.currentUser);
+  }
+
+  async fetchUserProfile() {
+    try {
+      const resp = await fetch(`${this.apiBase}/me`, { cache: 'no-store' });
+      if (resp.status === 401 || resp.status === 403) {
+        this.setUserProfile({
+          authenticated: false,
+          username: null,
+          role: null,
+          canEdit: false,
+          isStandalone: false
+        });
+        return this.currentUser;
+      }
+      if (resp.ok) {
+        const data = await resp.json();
+        this.setUserProfile({
+          authenticated: true,
+          username: data.username,
+          role: data.role,
+          canEdit: data.canEdit,
+          isStandalone: false
+        });
+        return this.currentUser;
+      }
+    } catch (e) {
+      // 404 Not Found или ошибка сети — автономный локальный режим
+    }
+    this.setUserProfile({
+      authenticated: true,
+      username: 'Локальный режим',
+      role: 'ADMIN',
+      canEdit: true,
+      isStandalone: true
+    });
+    return this.currentUser;
+  }
+
   // --- Методы работы с сервером ---
 
   initServerSync() {
-    // 1. Первая попытка загрузки актуального состояния с сервера
-    this.fetchServerState().then(connected => {
-      if (connected) {
-        this.startPolling();
+    // 1. Проверяем сессию и права пользователя в BrigApp
+    this.fetchUserProfile().then((user) => {
+      if (user && user.authenticated === false) {
+        this.setSyncStatus('unauthorized', 'Не авторизован');
+        return;
       }
+      // 2. Первая попытка загрузки актуального состояния с сервера
+      this.fetchServerState().then(connected => {
+        if (connected) {
+          this.startPolling();
+        }
+      });
     });
 
-    // 2. Дополнительная проверка при возвращении пользователя на вкладку
+    // 3. Дополнительная проверка при возвращении пользователя на вкладку
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && this.isServerAvailable) {
         this.checkRemoteUpdates();
@@ -169,10 +251,14 @@ class StateStore {
     try {
       const resp = await fetch(`${this.apiBase}/state`, { cache: 'no-store' });
       if (resp.status === 204) {
-        // На сервере ещё нет сохранённого проекта — отправляем локальный
+        // На сервере ещё нет сохранённого проекта — отправляем локальный (если есть права)
         this.isServerAvailable = true;
-        this.setSyncStatus('saving', 'Инициализация сервера...');
-        await this.pushStateToServer();
+        if (this.canEdit()) {
+          this.setSyncStatus('saving', 'Инициализация сервера...');
+          await this.pushStateToServer();
+        } else {
+          this.setSyncStatus('synced', 'Синхронизировано');
+        }
         return true;
       }
       if (resp.ok) {
@@ -205,12 +291,25 @@ class StateStore {
   }
 
   async pushStateToServer() {
+    if (!this.canEdit()) {
+      this.setSyncStatus('readonly', 'Только чтение');
+      return;
+    }
     try {
       const resp = await fetch(`${this.apiBase}/state`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(this.state)
       });
+      if (resp.status === 403) {
+        this.setSyncStatus('error', 'Нет прав на запись (Только чтение)');
+        return;
+      }
+      if (resp.status === 401) {
+        this.setUserProfile({ authenticated: false, canEdit: false, isStandalone: false });
+        this.setSyncStatus('unauthorized', 'Сессия истекла');
+        return;
+      }
       if (resp.ok) {
         const meta = await resp.json().catch(() => ({}));
         this.lastServerModified = meta.lastModified || Date.now();
