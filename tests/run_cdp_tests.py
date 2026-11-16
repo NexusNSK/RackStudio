@@ -1914,6 +1914,39 @@ async def run_test_suite():
             print_modal_ok["interactiveControls"] == 0 and print_modal_ok["channelsEnclosed"] and snap_sel is None
         ), str(print_modal_ok))
 
+        # Verify rack visualization in Passport renders as Light Theme (saving printer toner)
+        passport_light_rack_ok = await client.eval(r"""
+            (() => {
+                const lum = (str) => {
+                    const m = String(str || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+                    if (!m) return -1;
+                    const [r, g, b] = [Number(m[1]), Number(m[2]), Number(m[3])].map(v => {
+                        const s = v / 255;
+                        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+                    });
+                    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+                };
+                const wrap = document.querySelector('#print-preview-container .print-rack-wrap');
+                const cab = wrap?.querySelector('.rack-cabinet');
+                const slots = wrap?.querySelector('.rack-slots-column');
+                const casing = wrap?.querySelector('.cable-casing');
+                const wrapLum = wrap ? lum(getComputedStyle(wrap).backgroundColor) : 0;
+                const cabLum = cab ? lum(getComputedStyle(cab).backgroundColor) : 0;
+                const slotsLum = slots ? lum(getComputedStyle(slots).backgroundColor) : 0;
+                const casingStroke = casing ? (casing.getAttribute('stroke') || getComputedStyle(casing).stroke) : '';
+                return {
+                    ok: wrapLum > 0.8 && cabLum > 0.8 && slotsLum > 0.8,
+                    wrapLum,
+                    cabLum,
+                    slotsLum,
+                    casingStroke
+                };
+            })()
+        """)
+        record("Print Passport renders rack visualization with light theme palette to save printer toner", bool(
+            passport_light_rack_ok and passport_light_rack_ok["ok"]
+        ), str(passport_light_rack_ok))
+
         # Toggle options: disable cable table & enable CLI configs
         await client.eval("""
             (() => {

@@ -167,14 +167,21 @@ export class PrintPassport {
       clonedSvg.style.width = `${totalW}px`;
       clonedSvg.style.height = `${totalH}px`;
       clonedSvg.style.pointerEvents = 'none';
+
+      // Always render SVG bridge casings with light theme styling in passport snapshot (saving printer toner)
+      clonedSvg.querySelectorAll('.cable-casing').forEach(p => {
+        p.setAttribute('stroke', '#f8fafc');
+      });
+      clonedSvg.querySelectorAll('.cable-shadow').forEach(p => {
+        p.setAttribute('stroke-opacity', '0');
+      });
     }
     clone.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
 
     // Scale cleanly to ~660px printable width while preserving full side channels & sub-pixel alignment
     const fitScale = 660 / totalW;
     const scaledH = Math.round(totalH * fitScale);
-    const isLight = document.documentElement.dataset.theme === 'light';
-    const wrapBg = isLight ? '#f1f5f9; border: 1px solid #cbd5e1' : '#0f1115';
+    const wrapBg = '#f1f5f9; border: 1px solid #cbd5e1';
 
     return `
       <div class="print-rack-wrap" inert style="width: 660px; height: ${scaledH}px; overflow: hidden; margin: 0 auto; border-radius: 10px; background: ${wrapBg}; padding: 6px; box-sizing: content-box; pointer-events: none; user-select: none;">

@@ -523,8 +523,9 @@ html[data-theme="light"] :where(.border-red-800, .border-red-800\/80, .border-re
   border-color: #dc2626 !important;
 }
 
-/* Physical Rack Cabinet & Rails in Light Theme (hardware panels stay authentic) */
-html[data-theme="light"] .rack-cabinet {
+/* Physical Rack Cabinet & Rails in Light Theme and Rack Passport (saving printer toner) */
+html[data-theme="light"] .rack-cabinet,
+.print-rack-wrap .rack-cabinet {
   background-image: linear-gradient(to bottom, #ffffff, #f8fafc, #f1f5f9) !important;
   background-color: #ffffff !important;
   border-color: #cbd5e1 !important;
@@ -533,61 +534,87 @@ html[data-theme="light"] .rack-cabinet {
     inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
 }
 
-html[data-theme="light"] .rack-frame {
+html[data-theme="light"] .rack-frame,
+.print-rack-wrap .rack-frame {
   background-color: #f8fafc !important;
   border-color: #cbd5e1 !important;
   box-shadow: inset 0 0 18px rgba(15, 23, 42, 0.05) !important;
 }
 
-html[data-theme="light"] .rack-rail-left {
+html[data-theme="light"] .rack-rail-left,
+.print-rack-wrap .rack-rail-left {
   background: linear-gradient(to right, #e2e8f0, #f1f5f9) !important;
   border-color: #cbd5e1 !important;
 }
 
-html[data-theme="light"] .rack-rail-right {
+html[data-theme="light"] .rack-rail-right,
+.print-rack-wrap .rack-rail-right {
   background: linear-gradient(to left, #e2e8f0, #f1f5f9) !important;
   border-color: #cbd5e1 !important;
 }
 
-html[data-theme="light"] .rack-rail .rounded-full {
+html[data-theme="light"] .rack-rail .rounded-full,
+.print-rack-wrap .rack-rail .rounded-full {
   background-color: #ffffff !important;
   border-color: #94a3b8 !important;
 }
 
-html[data-theme="light"] .rack-rail .u-num {
+html[data-theme="light"] .rack-rail .u-num,
+.print-rack-wrap .rack-rail .u-num {
   color: #334155 !important;
 }
 
-/* Keep print-preview rack header readable when Light Theme renders a light .rack-cabinet */
-html[data-theme="light"] #print-preview-container .print-rack-wrap .text-slate-200 {
+/* Printable / Preview Rack Header & Typography in Passport (saving toner) */
+.print-rack-wrap .text-slate-200 {
   color: #0f172a !important;
 }
-html[data-theme="light"] #print-preview-container .print-rack-wrap .text-slate-300 {
+.print-rack-wrap .text-slate-300 {
   color: #1e293b !important;
 }
-html[data-theme="light"] #print-preview-container .print-rack-wrap .text-slate-400,
-html[data-theme="light"] #print-preview-container .print-rack-wrap .text-slate-600 {
+.print-rack-wrap .text-slate-400,
+.print-rack-wrap .text-slate-600 {
   color: #475569 !important;
 }
-html[data-theme="light"] #print-preview-container .print-rack-wrap .text-cyan-400 {
+.print-rack-wrap .text-cyan-400 {
   color: #0e7490 !important;
 }
-html[data-theme="light"] #print-preview-container .print-rack-wrap .text-amber-400 {
+.print-rack-wrap .text-amber-400 {
   color: #b45309 !important;
 }
-html[data-theme="light"] #print-preview-container .print-rack-wrap .bg-slate-800 {
+.print-rack-wrap .bg-slate-800 {
   background-color: #f1f5f9 !important;
   border-color: #cbd5e1 !important;
 }
+.print-rack-wrap .border-slate-800 {
+  border-color: #e2e8f0 !important;
+}
 
-html[data-theme="light"] .rack-slots-column {
+html[data-theme="light"] .rack-slots-column,
+.print-rack-wrap .rack-slots-column {
   background-color: #f8fafc !important;
 }
 
-html[data-theme="light"] .installed-device {
+html[data-theme="light"] .installed-device,
+.print-rack-wrap .installed-device {
   box-shadow:
     0 1px 3px rgba(15, 23, 42, 0.18),
     inset 0 0 0 1px rgba(15, 23, 42, 0.25);
+}
+
+.print-rack-wrap .slot-empty {
+  border-color: #cbd5e1 !important;
+}
+
+.print-rack-wrap .slot-empty span {
+  color: #64748b !important;
+}
+
+.print-rack-wrap .cable-casing {
+  stroke: #f8fafc !important;
+}
+
+.print-rack-wrap .cable-shadow {
+  stroke-opacity: 0 !important;
 }
 
 /* Eltex CLI Terminal in Light Theme */
@@ -660,6 +687,11 @@ html[data-theme="light"] #cable-tooltip {
   @page {
     size: A4 portrait;
     margin: 12mm;
+  }
+
+  .print-rack-wrap {
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
   }
 
   html, body {
