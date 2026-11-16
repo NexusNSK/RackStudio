@@ -64,21 +64,15 @@ class StateStore {
     DEFAULT_DEVICE_TEMPLATES.forEach(dt => {
       if (!existingIds.has(dt.id) && !knownIds.has(dt.id)) {
         targetState.templates.push(JSON.parse(JSON.stringify(dt)));
-      } else if (dt.id === 'tpl-eltex-mes2324p') {
-        const existingTpl = targetState.templates.find(t => t.id === dt.id);
-        const p1 = existingTpl?.ports?.find(p => p.id === 'p-1');
-        const xg1 = existingTpl?.ports?.find(p => p.id === 'xg-1');
-        if (p1?.x === 36.72 && p1?.y === 43.55 && xg1?.x === 81.94 && xg1?.y === 77.42) {
-          existingTpl.ports = JSON.parse(JSON.stringify(dt.ports));
-        }
-      } else if (dt.id === 'tpl-eltex-mes2324b' || dt.id === 'tpl-eltex-ltp-4x' || dt.id === 'tpl-eltex-tau-32') {
+      } else if (dt.id === 'tpl-eltex-mes2324' || dt.id === 'tpl-eltex-mes2324p' || dt.id === 'tpl-eltex-mes2324b' || dt.id === 'tpl-eltex-ltp-4x' || dt.id === 'tpl-eltex-tau-32') {
         const existingTpl = targetState.templates.find(t => t.id === dt.id);
         if (existingTpl) {
           const hasConsole = existingTpl.ports?.some(p => p.type === 'console');
           const hasPower = existingTpl.ports?.some(p => p.type === 'power');
           const hasOldLtpCoords = dt.id === 'tpl-eltex-ltp-4x' && existingTpl.ports?.some(p => p.id === 'xg-0' && p.x === 41.10);
           const hasOldTauCoords = dt.id === 'tpl-eltex-tau-32' && existingTpl.ports?.some(p => p.id === 'ge-2' && p.x === 73.32);
-          if (hasConsole || hasPower || existingTpl.ports?.length !== dt.ports.length || hasOldLtpCoords || hasOldTauCoords) {
+          const hasOld2324Coords = (dt.id === 'tpl-eltex-mes2324' || dt.id === 'tpl-eltex-mes2324p') && existingTpl.ports?.some(p => p.id === 'p-1' && (p.x !== 34.22 || p.y !== 37.10));
+          if (hasConsole || hasPower || existingTpl.ports?.length !== dt.ports.length || hasOldLtpCoords || hasOldTauCoords || hasOld2324Coords) {
             existingTpl.ports = JSON.parse(JSON.stringify(dt.ports));
             existingTpl.style = JSON.parse(JSON.stringify(dt.style));
           }

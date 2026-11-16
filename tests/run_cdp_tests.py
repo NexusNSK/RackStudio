@@ -834,28 +834,19 @@ async def run_test_suite():
         print("\n--- Test Suite 9A: Eltex MES2324 Built-in Photo Templates ---")
         eltex_templates_ok = await client.eval("""
             (() => {
-                const standardIds = ['tpl-eltex-mes2324', 'tpl-eltex-mes2324p'];
-                const standardOk = standardIds.every(id => {
+                const all2324Ids = ['tpl-eltex-mes2324', 'tpl-eltex-mes2324p', 'tpl-eltex-mes2324b'];
+                return all2324Ids.every(id => {
                     const tpl = window.store.getTemplate(id);
                     if (!tpl || tpl.vendor !== 'Eltex' || tpl.category !== 'switch') return false;
                     const rjCount = tpl.ports.filter(p => p.type === 'rj45').length;
                     const sfpCount = tpl.ports.filter(p => p.type === 'sfp').length;
                     const conCount = tpl.ports.filter(p => p.type === 'console').length;
-                    return rjCount === 24 && sfpCount === 4 && conCount === 1 && Boolean(tpl.style?.customImage);
+                    const powCount = tpl.ports.filter(p => p.type === 'power').length;
+                    return rjCount === 24 && sfpCount === 4 && conCount === 0 && powCount === 0 && Boolean(tpl.style?.customImage);
                 });
-                const bTpl = window.store.getTemplate('tpl-eltex-mes2324b');
-                const bOk = Boolean(
-                    bTpl && bTpl.vendor === 'Eltex' && bTpl.category === 'switch' &&
-                    bTpl.ports.filter(p => p.type === 'rj45').length === 24 &&
-                    bTpl.ports.filter(p => p.type === 'sfp').length === 4 &&
-                    bTpl.ports.filter(p => p.type === 'console').length === 0 &&
-                    bTpl.ports.filter(p => p.type === 'power').length === 0 &&
-                    Boolean(bTpl.style?.customImage)
-                );
-                return standardOk && bOk;
             })()
         """)
-        record("Eltex MES2324 series templates exist (MES2324B with 28 ports, no console/power)", bool(eltex_templates_ok))
+        record("Eltex MES2324 series templates exist (MES2324, MES2324P, MES2324B with 28 ports, no console/power)", bool(eltex_templates_ok))
 
         eltex_images_ok = await client.eval("""
             (async () => {
@@ -945,8 +936,7 @@ async def run_test_suite():
                 const p1 = el.querySelector('.port-slot[data-port-id="p-1"]');
                 const p13 = el.querySelector('.port-slot[data-port-id="p-13"]');
                 const xg1 = el.querySelector('.port-slot[data-port-id="xg-1"]');
-                const con = el.querySelector('.port-slot[data-port-id="console"]');
-                if (!p1 || !p13 || !xg1 || !con) return false;
+                if (!p1 || !p13 || !xg1) return false;
                 const j1 = p1.querySelector('.port-jack').getBoundingClientRect();
                 const j13 = p13.querySelector('.port-jack').getBoundingClientRect();
                 const c1 = window.store.addCable({
@@ -969,7 +959,7 @@ async def run_test_suite():
             })()
         """)
         await asyncio.sleep(0.3)
-        record("Eltex photo panel renders coaxial RJ45/SFP/Console ports without row overlap", bool(eltex_render_ok))
+        record("Eltex photo panel renders coaxial RJ45/SFP ports without row overlap", bool(eltex_render_ok))
 
         legacy_migration_ok = await client.eval("""
             (() => {

@@ -235,13 +235,11 @@ export const DEFAULT_DEVICE_TEMPLATES = [
       customImage: 'assets/panels/mes2324.png'
     },
     ports: createEltex24SwitchPorts({
-      colXs: [34.72, 38.22, 41.73, 45.18, 49.09, 52.59, 56.08, 59.53, 63.45, 67.02, 70.54, 73.99],
-      topY: 44.76,
-      botY: 68.55,
-      sfpXs: [81.14, 85.4, 89.67, 93.79],
-      sfpY: 77.02,
-      consoleX: 24.85,
-      consoleY: 74.19,
+      colXs: [34.22, 37.88, 41.58, 45.24, 49.28, 52.93, 56.63, 60.29, 64.37, 68.03, 71.68, 75.34],
+      topY: 37.10,
+      botY: 70.16,
+      sfpXs: [82.77, 87.20, 91.58, 96.00],
+      sfpY: 71.77,
       rjSpeed: '1G'
     })
   },
@@ -259,13 +257,11 @@ export const DEFAULT_DEVICE_TEMPLATES = [
       customImage: 'assets/panels/mes2324p.png'
     },
     ports: createEltex24SwitchPorts({
-      colXs: [36.62, 40.09, 43.56, 47.03, 50.84, 54.31, 57.77, 61.24, 65.05, 68.52, 71.99, 75.46],
-      topY: 42.0,
-      botY: 68.15,
-      sfpXs: [82.43, 86.62, 90.82, 95.01],
-      sfpY: 76.61,
-      consoleX: 27.1,
-      consoleY: 73.39,
+      colXs: [34.22, 37.88, 41.58, 45.24, 49.28, 52.93, 56.63, 60.29, 64.37, 68.03, 71.68, 75.34],
+      topY: 37.10,
+      botY: 70.16,
+      sfpXs: [82.77, 87.20, 91.58, 96.00],
+      sfpY: 71.77,
       rjSpeed: '1G / PoE+'
     })
   },
