@@ -398,6 +398,105 @@ class StateStore {
     return newRack;
   }
 
+  cloneRack(rackId = null) {
+    const targetRackId = rackId || this.state.activeRackId;
+    const sourceRack = this.state.racks.find(r => r.id === targetRackId);
+    if (!sourceRack) return null;
+
+    let cloneName = `${sourceRack.name} (копия)`;
+    let counter = 2;
+    while (this.state.racks.some(r => r.name === cloneName)) {
+      cloneName = `${sourceRack.name} (копия ${counter++})`;
+    }
+
+    const newRackId = `rack-${Date.now()}-${++this._idSeq}`;
+    const deviceIdMap = new Map();
+
+    const clonedDevices = (sourceRack.installedDevices || []).map(dev => {
+      const newDevId = `dev-${Date.now()}-${++this._idSeq}`;
+      deviceIdMap.set(dev.id, newDevId);
+      return {
+        ...JSON.parse(JSON.stringify(dev)),
+        id: newDevId
+      };
+    });
+
+    const newRack = {
+      id: newRackId,
+      name: cloneName,
+      uHeight: sourceRack.uHeight,
+      model: sourceRack.model,
+      installedDevices: clonedDevices
+    };
+
+    this.state.racks.push(newRack);
+
+    // Clone connection groups belonging to sourceRack
+    const groupIdMap = new Map();
+    if (!this.state.groups) this.state.groups = [];
+    const sourceGroups = this.getGroups(sourceRack.id);
+    sourceGroups.forEach(grp => {
+      const newGrpId = `grp-${Date.now()}-${++this._idSeq}`;
+      groupIdMap.set(grp.id, newGrpId);
+      this.state.groups.push({
+        ...JSON.parse(JSON.stringify(grp)),
+        id: newGrpId,
+        rackId: newRackId
+      });
+    });
+
+    // Clone intra-rack cables
+    const clonedCables = [];
+    if (!this.state.cables) this.state.cables = [];
+    this.state.cables.forEach(c => {
+      const newFromDevId = deviceIdMap.get(c.from?.deviceId);
+      const newToDevId = deviceIdMap.get(c.to?.deviceId);
+      if (newFromDevId && newToDevId) {
+        const newCableId = `c-${Date.now()}-${++this._idSeq}`;
+        const newGroupId = c.groupId ? (groupIdMap.get(c.groupId) || '') : '';
+        clonedCables.push({
+          ...JSON.parse(JSON.stringify(c)),
+          id: newCableId,
+          groupId: newGroupId,
+          from: {
+            deviceId: newFromDevId,
+            portId: c.from.portId
+          },
+          to: {
+            deviceId: newToDevId,
+            portId: c.to.portId
+          }
+        });
+      }
+    });
+
+    if (clonedCables.length > 0) {
+      this.state.cables.push(...clonedCables);
+    }
+
+    // Clone topology layout positions for this rack if present
+    const oldScopeKey = `rack:${sourceRack.id}`;
+    const newScopeKey = `rack:${newRackId}`;
+    if (this.state.topologyPositions && this.state.topologyPositions[oldScopeKey]) {
+      const oldBucket = this.state.topologyPositions[oldScopeKey];
+      const newBucket = {};
+      Object.entries(oldBucket).forEach(([oldDevId, pos]) => {
+        const mappedId = deviceIdMap.get(oldDevId);
+        if (mappedId) {
+          newBucket[mappedId] = { ...pos };
+        }
+      });
+      this.state.topologyPositions[newScopeKey] = newBucket;
+    }
+
+    this.state.activeRackId = newRackId;
+    this.state.activeGroupFilter = 'ALL';
+    this.selectedEntity = null;
+
+    this.notify('rack_added', { rack: newRack, sourceRackId: sourceRack.id });
+    return newRack;
+  }
+
   updateRack(rackId, updates) {
     const rack = this.state.racks.find(r => r.id === rackId);
     if (!rack) return;

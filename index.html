@@ -69,7 +69,10 @@
           <!-- Populated dynamically -->
         </select>
         <button id="btn-edit-rack" onclick="window.openEditRackModal()" class="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition" title="Настройки стойки">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+          <svg class="w-3.5 h-3.5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+        </button>
+        <button id="btn-clone-rack" onclick="window.cloneCurrentRack()" class="p-1.5 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 rounded transition" title="Клонировать стойку">
+          <svg class="w-3.5 h-3.5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
         </button>
         <button id="btn-add-rack" onclick="window.openAddRackModal()" class="px-2.5 py-1 bg-cyan-950/90 hover:bg-cyan-900 text-cyan-300 border border-cyan-800/80 rounded-lg text-xs font-semibold flex items-center gap-1 transition shadow-sm" title="Создать новую стойку">
           <span>+ Стойка</span>
@@ -185,7 +188,7 @@
         <!-- Quick Tips Card -->
         <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3 text-xs text-slate-400 space-y-2">
           <div class="font-bold text-slate-200 flex items-center gap-1.5">
-            <span>💡 Как работать:</span>
+            <span>Как работать:</span>
           </div>
           <p class="leading-relaxed">
             1. <b>Патч-корды:</b> кликните по порту, затем по целевому порту (можно переключить стойку для межстоечного линка!).
@@ -650,9 +653,14 @@
         </div>
 
         <div class="pt-3 border-t border-slate-800 flex items-center justify-between">
-          <button type="button" id="btn-delete-rack-modal" onclick="window.deleteRackConfirm(window.app && window.app.editingRackId)" class="text-red-400 hover:text-red-300 text-xs px-2.5 py-1.5 rounded hover:bg-red-950/60 hidden">
-            🗑 Удалить стойку
-          </button>
+          <div class="flex items-center gap-2">
+            <button type="button" id="btn-delete-rack-modal" onclick="window.deleteRackConfirm(window.app && window.app.editingRackId)" class="text-red-400 hover:text-red-300 text-xs px-2.5 py-1.5 rounded hover:bg-red-950/60 hidden">
+              Удалить стойку
+            </button>
+            <button type="button" id="btn-clone-rack-modal" onclick="window.cloneCurrentRack()" class="text-cyan-400 hover:text-cyan-300 text-xs px-2.5 py-1.5 rounded hover:bg-cyan-950/60 hidden transition">
+              Клонировать стойку
+            </button>
+          </div>
           <div class="flex items-center gap-2 ml-auto">
             <button type="button" id="btn-cancel-rack-modal" onclick="window.closeRackModal()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg">Отмена</button>
             <button type="submit" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg shadow">Сохранить</button>

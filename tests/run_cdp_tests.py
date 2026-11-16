@@ -288,6 +288,8 @@ async def run_test_suite():
         await asyncio.sleep(0.2)
         edit_title = await client.eval("document.getElementById('rack-modal-title').textContent")
         record("Click '#btn-edit-rack' opens Settings for current rack", "Настройки" in edit_title, f"Title: {edit_title}")
+        clone_modal_btn_visible = await client.eval("!document.getElementById('btn-clone-rack-modal').classList.contains('hidden')")
+        record("Rack modal shows Clone button in edit mode", clone_modal_btn_visible)
         await client.eval("document.getElementById('close-rack-modal').click()")
         await asyncio.sleep(0.2)
 
@@ -704,6 +706,60 @@ async def run_test_suite():
             }})()
         """)
         record("Hovered port number renders on top of patch cords with elevated z-index", bool(port_hover_layering_ok))
+
+        # Test Clone Rack with installed devices, connection groups, and intra-rack cables
+        clone_test = await client.eval("""
+            (() => {
+                const srcRack = window.store.getActiveRack();
+                const initialRacksCount = window.store.getRacks().length;
+                const srcDevs = srcRack.installedDevices.slice();
+                const srcGroups = window.store.getGroups(srcRack.id);
+                const srcCables = window.store.getCablesForActiveRack();
+
+                // Clone current rack via header button
+                const cloneBtn = document.getElementById('btn-clone-rack');
+                if (cloneBtn) cloneBtn.click();
+                else window.cloneCurrentRack();
+
+                const newRacksCount = window.store.getRacks().length;
+                const clonedRack = window.store.getActiveRack();
+                const clonedDevs = clonedRack?.installedDevices || [];
+                const clonedGroups = window.store.getGroups(clonedRack.id);
+                const clonedCables = window.store.getCablesForActiveRack();
+                const svgCables = document.querySelectorAll('#cables-svg .cable-group').length;
+
+                const nameOk = clonedRack.name === `${srcRack.name} (копия)`;
+                const countOk = newRacksCount === initialRacksCount + 1;
+                const devsCountOk = clonedDevs.length === srcDevs.length;
+                const diffDevIds = clonedDevs.every((d, i) => d.id !== srcDevs[i]?.id && d.templateId === srcDevs[i]?.templateId && d.uPosition === srcDevs[i]?.uPosition);
+                const groupsCountOk = clonedGroups.length === srcGroups.length;
+                const diffGroupIds = clonedGroups.every((g, i) => g.id !== srcGroups[i]?.id && g.name === srcGroups[i]?.name);
+                const cablesCountOk = clonedCables.length === srcCables.length && clonedCables.length >= 1;
+                const diffCableIds = clonedCables.every((c, i) => c.id !== srcCables[i]?.id && c.from.deviceId !== srcCables[i]?.from.deviceId);
+
+                // Clean up: delete cloned rack and switch back to srcRack
+                window.store.deleteRack(clonedRack.id);
+                window.store.setActiveRack(srcRack.id);
+
+                return {
+                    nameOk,
+                    countOk,
+                    devsCountOk,
+                    diffDevIds,
+                    groupsCountOk,
+                    diffGroupIds,
+                    cablesCountOk,
+                    diffCableIds,
+                    svgRendered: svgCables >= 1,
+                    restoredCount: window.store.getRacks().length === initialRacksCount,
+                    restoredActive: window.store.getActiveRack().id === srcRack.id
+                };
+            })()
+        """)
+        record("Clone rack duplicates devices, workplace groups, cables and switches active view",
+               bool(clone_test and clone_test["nameOk"] and clone_test["countOk"] and clone_test["diffDevIds"] and clone_test["diffGroupIds"] and clone_test["diffCableIds"] and clone_test["svgRendered"] and clone_test["restoredCount"]),
+               str(clone_test))
+
         # -------------------------------------------------------------
         # TEST 6: Switch CLI Terminal Modal
         # -------------------------------------------------------------
