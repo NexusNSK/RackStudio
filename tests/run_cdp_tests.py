@@ -2099,6 +2099,57 @@ async def run_test_suite():
         """)
         record("Print Passport checkboxes dynamically show/hide Cable & CLI sections", bool(print_toggle_ok))
 
+        # Verify Multi-Rack Passport Scope (All Racks vs Active Rack)
+        passport_scope_ok = await client.eval("""
+            (() => {
+                const scopeSel = document.getElementById('print-opt-scope');
+                const optActive = scopeSel?.querySelector('option[value="active"]')?.textContent || '';
+                const optAll = scopeSel?.querySelector('option[value="all"]')?.textContent || '';
+                const racksCount = window.store.getRacks().length;
+                const activeRackName = window.store.getActiveRack()?.name || '';
+                const labelsOk = optActive.includes(activeRackName) && optAll.includes(String(racksCount));
+
+                // Switch scope to 'all'
+                scopeSel.value = 'all';
+                scopeSel.dispatchEvent(new Event('change', { bubbles: true }));
+
+                const preview = document.getElementById('print-preview-container');
+                const txtAll = preview?.textContent || '';
+                const wrapsAll = preview?.querySelectorAll('.print-rack-wrap').length || 0;
+                const isAllPassport = txtAll.includes('Сводный паспорт серверных стоек проекта') &&
+                                      txtAll.includes(`Все стойки проекта (${racksCount} шт.)`) &&
+                                      wrapsAll === racksCount;
+
+                // Re-enable cables to test multi-rack journal
+                const cChk = document.getElementById('print-opt-cables');
+                cChk.checked = true;
+                cChk.dispatchEvent(new Event('change', { bubbles: true }));
+                const hasAllCablesTitle = (preview?.textContent || '').includes('Сводный журнал подключений');
+
+                // Switch scope back to 'active'
+                scopeSel.value = 'active';
+                scopeSel.dispatchEvent(new Event('change', { bubbles: true }));
+                const txtActive = preview?.textContent || '';
+                const wrapsActive = preview?.querySelectorAll('.print-rack-wrap').length || 0;
+                const isSinglePassport = txtActive.includes(activeRackName) &&
+                                         !txtActive.includes('Сводный паспорт серверных стоек проекта') &&
+                                         wrapsActive === 1;
+
+                return {
+                    labelsOk,
+                    isAllPassport,
+                    wrapsAll,
+                    hasAllCablesTitle,
+                    isSinglePassport,
+                    wrapsActive,
+                    ok: labelsOk && isAllPassport && hasAllCablesTitle && isSinglePassport
+                };
+            })()
+        """)
+        record("Multi-Rack Passport scope switches between single rack and all-racks project passport", bool(
+            passport_scope_ok and passport_scope_ok.get("ok")
+        ), str(passport_scope_ok))
+
         # Verify actual browser PDF generation via CDP Page.printToPDF
         pdf_res = await client.send("Page.printToPDF", {"printBackground": True})
         pdf_bytes = base64.b64decode(pdf_res.get("data", ""))

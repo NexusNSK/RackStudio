@@ -48,11 +48,27 @@ export class PrintPassport {
     });
   }
 
+  updateScopeSelectLabels() {
+    const scopeSelect = this.modal?.querySelector('#print-opt-scope');
+    if (!scopeSelect) return;
+    const activeRack = store.getActiveRack();
+    const racks = store.getRacks();
+    const optActive = scopeSelect.querySelector('option[value="active"]');
+    const optAll = scopeSelect.querySelector('option[value="all"]');
+    if (optActive) {
+      optActive.textContent = activeRack ? `Активная стойка (${activeRack.name})` : 'Активная стойка';
+    }
+    if (optAll) {
+      optAll.textContent = `Все стойки проекта (${racks.length} шт.)`;
+    }
+  }
+
   getOptions() {
     const isChecked = (id, fallback = true) => {
       const el = this.modal?.querySelector(`#${id}`);
       return el ? el.checked : fallback;
     };
+    const scopeVal = this.modal?.querySelector('#print-opt-scope')?.value || 'active';
     return {
       includeSummary: isChecked('print-opt-summary', true),
       includeRack: isChecked('print-opt-rack', true),
@@ -60,12 +76,14 @@ export class PrintPassport {
       includeCables: isChecked('print-opt-cables', true),
       includeDevices: isChecked('print-opt-devices', true),
       includeCli: isChecked('print-opt-cli', false),
-      topologyScope: this.modal?.querySelector('#print-opt-scope')?.value || 'active'
+      scope: scopeVal,
+      topologyScope: scopeVal
     };
   }
 
   open() {
     if (!this.modal) return;
+    this.updateScopeSelectLabels();
     this.refreshReport();
     this.modal.classList.remove('hidden');
     this.modal.classList.add('flex');
@@ -107,9 +125,9 @@ export class PrintPassport {
     rootEl.querySelectorAll('*').forEach(stripNodeAttrs);
   }
 
-  captureRackSnapshotMarkup() {
+  captureRackSnapshotMarkup(targetRackId = null) {
     if (typeof this.onEnsureRackRendered === 'function') {
-      this.onEnsureRackRendered();
+      this.onEnsureRackRendered(targetRackId);
     }
     const stage = document.getElementById('rack-zoom-stage');
     if (!stage) return '';
@@ -193,22 +211,17 @@ export class PrintPassport {
   }
 
   buildReportHtml() {
-    const rack = store.getActiveRack();
-    if (!rack) return '<p>Нет активной стойки</p>';
+    const allRacks = store.getRacks();
+    if (allRacks.length === 0) return '<p>Нет стоек в проекте</p>';
 
+    const activeRack = store.getActiveRack();
     const opts = this.getOptions();
-    const groups = store.getGroups(rack.id);
-    const cables = store.getCablesForActiveRack();
+    const isAllScope = opts.scope === 'all';
 
-    const occupiedUnits = rack.installedDevices.reduce((sum, d) => {
-      const tpl = store.getTemplate(d.templateId);
-      return sum + (tpl?.uHeight || 1);
-    }, 0);
-    const totalPowerW = rack.installedDevices.reduce((sum, d) => {
-      const tpl = store.getTemplate(d.templateId);
-      return sum + (tpl?.powerW || 0);
-    }, 0);
-    const interRackCount = cables.filter(c => store.isInterRackCable(c)).length;
+    if (!isAllScope && !activeRack) {
+      return '<p>Нет активной стойки</p>';
+    }
+
     const dateStr = new Date().toLocaleString('ru-RU', {
       year: 'numeric',
       month: '2-digit',
@@ -219,69 +232,182 @@ export class PrintPassport {
 
     const parts = [];
 
+    // --- Summary Section ---
     if (opts.includeSummary) {
-      parts.push(`
-        <section class="print-section print-header-card">
-          <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #0f172a; padding-bottom:10px; margin-bottom:14px;">
-            <div>
-              <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:#0284c7; font-weight:700;">RackStudio PRO • Паспорт монтажного шкафа</div>
-              <h1 style="font-size:20px; font-weight:800; color:#0f172a; margin:4px 0 2px;">${escapeHtml(rack.name)}</h1>
-              <div style="font-size:12px; color:#475569;">Конструктив: ${escapeHtml(rack.model || `19" ${rack.uHeight}U`)}</div>
-            </div>
-            <div style="text-align:right; font-size:11px; color:#475569;">
-              <div>Сформировано: <b>${escapeHtml(dateStr)}</b></div>
-              <div>Всего стоек в проекте: <b>${store.getRacks().length}</b></div>
-            </div>
-          </div>
+      if (isAllScope) {
+        const totalOccupiedU = allRacks.reduce((sum, r) => {
+          return sum + r.installedDevices.reduce((dSum, d) => {
+            const tpl = store.getTemplate(d.templateId);
+            return dSum + (tpl?.uHeight || 1);
+          }, 0);
+        }, 0);
+        const totalCapacityU = allRacks.reduce((sum, r) => sum + (r.uHeight || 42), 0);
+        const totalDevCount = allRacks.reduce((sum, r) => sum + r.installedDevices.length, 0);
+        const totalPowerW = allRacks.reduce((sum, r) => {
+          return sum + r.installedDevices.reduce((dSum, d) => {
+            const tpl = store.getTemplate(d.templateId);
+            return dSum + (tpl?.powerW || 0);
+          }, 0);
+        }, 0);
+        const allCables = store.state.cables || [];
+        const interRackCount = allCables.filter(c => store.isInterRackCable(c)).length;
+        const intraRackCount = allCables.length - interRackCount;
+        const allGroups = store.state.connectionGroups || [];
 
-          <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:12px;">
-            <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
-              <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Занятость юнитов</div>
-              <div style="font-size:16px; font-weight:700; color:#0f172a;">${occupiedUnits} / ${rack.uHeight} U</div>
+        parts.push(`
+          <section class="print-section print-header-card">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #0f172a; padding-bottom:10px; margin-bottom:14px;">
+              <div>
+                <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:#0284c7; font-weight:700;">RackStudio PRO • Сводный паспорт серверных стоек проекта</div>
+                <h1 style="font-size:20px; font-weight:800; color:#0f172a; margin:4px 0 2px;">Все стойки проекта (${allRacks.length} шт.)</h1>
+                <div style="font-size:12px; color:#475569;">Сводная спецификация и схемы коммутации проекта</div>
+              </div>
+              <div style="text-align:right; font-size:11px; color:#475569;">
+                <div>Сформировано: <b>${escapeHtml(dateStr)}</b></div>
+                <div>Всего стоек: <b>${allRacks.length}</b></div>
+              </div>
             </div>
-            <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
-              <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Оборудование</div>
-              <div style="font-size:16px; font-weight:700; color:#0f172a;">${rack.installedDevices.length} устр.</div>
-            </div>
-            <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
-              <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Базовая мощность</div>
-              <div style="font-size:16px; font-weight:700; color:#b45309;">${totalPowerW} Вт</div>
-            </div>
-            <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
-              <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Патч-корды</div>
-              <div style="font-size:16px; font-weight:700; color:#0369a1;">${cables.length} шт.${interRackCount > 0 ? ` (${interRackCount} межст.)` : ''}</div>
-            </div>
-          </div>
 
-          ${groups.length > 0 ? `
-            <div style="font-size:11px; color:#334155; display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
-              <span style="font-weight:700;">Рабочие группы:</span>
-              ${groups.map(g => `
-                <span style="display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border:1px solid #cbd5e1; border-radius:999px; background:#fff;">
-                  <span style="width:8px; height:8px; border-radius:50%; background:${escapeHtml(g.color)}; display:inline-block;"></span>
-                  <span>${escapeHtml(g.name)}</span>
-                </span>
-              `).join('')}
+            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:12px;">
+              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
+                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Занятость юнитов</div>
+                <div style="font-size:16px; font-weight:700; color:#0f172a;">${totalOccupiedU} / ${totalCapacityU} U</div>
+              </div>
+              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
+                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Оборудование</div>
+                <div style="font-size:16px; font-weight:700; color:#0f172a;">${totalDevCount} устр.</div>
+              </div>
+              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
+                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Базовая мощность</div>
+                <div style="font-size:16px; font-weight:700; color:#b45309;">${totalPowerW} Вт</div>
+              </div>
+              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
+                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Патч-корды</div>
+                <div style="font-size:16px; font-weight:700; color:#0369a1;">${allCables.length} шт.${interRackCount > 0 ? ` (${intraRackCount} внутр. / ${interRackCount} межст.)` : ''}</div>
+              </div>
             </div>
-          ` : ''}
-        </section>
-      `);
+
+            ${allGroups.length > 0 ? `
+              <div style="font-size:11px; color:#334155; display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+                <span style="font-weight:700;">Рабочие группы проекта:</span>
+                ${allGroups.map(g => `
+                  <span style="display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border:1px solid #cbd5e1; border-radius:999px; background:#fff;">
+                    <span style="width:8px; height:8px; border-radius:50%; background:${escapeHtml(g.color)}; display:inline-block;"></span>
+                    <span>${escapeHtml(g.name)}</span>
+                  </span>
+                `).join('')}
+              </div>
+            ` : ''}
+          </section>
+        `);
+      } else {
+        const occupiedUnits = activeRack.installedDevices.reduce((sum, d) => {
+          const tpl = store.getTemplate(d.templateId);
+          return sum + (tpl?.uHeight || 1);
+        }, 0);
+        const totalPowerW = activeRack.installedDevices.reduce((sum, d) => {
+          const tpl = store.getTemplate(d.templateId);
+          return sum + (tpl?.powerW || 0);
+        }, 0);
+        const cables = store.getCablesForActiveRack();
+        const interRackCount = cables.filter(c => store.isInterRackCable(c)).length;
+        const groups = store.getGroups(activeRack.id);
+
+        parts.push(`
+          <section class="print-section print-header-card">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #0f172a; padding-bottom:10px; margin-bottom:14px;">
+              <div>
+                <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:#0284c7; font-weight:700;">RackStudio PRO • Паспорт монтажного шкафа</div>
+                <h1 style="font-size:20px; font-weight:800; color:#0f172a; margin:4px 0 2px;">${escapeHtml(activeRack.name)}</h1>
+                <div style="font-size:12px; color:#475569;">Конструктив: ${escapeHtml(activeRack.model || `19" ${activeRack.uHeight}U`)}</div>
+              </div>
+              <div style="text-align:right; font-size:11px; color:#475569;">
+                <div>Сформировано: <b>${escapeHtml(dateStr)}</b></div>
+                <div>Всего стоек в проекте: <b>${allRacks.length}</b></div>
+              </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:12px;">
+              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
+                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Занятость юнитов</div>
+                <div style="font-size:16px; font-weight:700; color:#0f172a;">${occupiedUnits} / ${activeRack.uHeight} U</div>
+              </div>
+              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
+                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Оборудование</div>
+                <div style="font-size:16px; font-weight:700; color:#0f172a;">${activeRack.installedDevices.length} устр.</div>
+              </div>
+              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
+                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Базовая мощность</div>
+                <div style="font-size:16px; font-weight:700; color:#b45309;">${totalPowerW} Вт</div>
+              </div>
+              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
+                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Патч-корды</div>
+                <div style="font-size:16px; font-weight:700; color:#0369a1;">${cables.length} шт.${interRackCount > 0 ? ` (${interRackCount} межст.)` : ''}</div>
+              </div>
+            </div>
+
+            ${groups.length > 0 ? `
+              <div style="font-size:11px; color:#334155; display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+                <span style="font-weight:700;">Рабочие группы:</span>
+                ${groups.map(g => `
+                  <span style="display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border:1px solid #cbd5e1; border-radius:999px; background:#fff;">
+                    <span style="width:8px; height:8px; border-radius:50%; background:${escapeHtml(g.color)}; display:inline-block;"></span>
+                    <span>${escapeHtml(g.name)}</span>
+                  </span>
+                `).join('')}
+              </div>
+            ` : ''}
+          </section>
+        `);
+      }
     }
 
+    // --- Section 1: Rack Snapshots ---
     if (opts.includeRack) {
-      parts.push(`
-        <section class="print-section" style="margin-top:16px;">
-          <h2 style="font-size:14px; font-weight:700; color:#0f172a; border-bottom:1px solid #cbd5e1; padding-bottom:4px; margin-bottom:10px;">
-            1. Монтажная схема шкафа (${escapeHtml(rack.name)})
-          </h2>
-          ${this.captureRackSnapshotMarkup()}
-        </section>
-      `);
+      if (isAllScope) {
+        const rackBlocks = allRacks.map((r, idx) => {
+          const rOccupied = r.installedDevices.reduce((sum, d) => sum + (store.getTemplate(d.templateId)?.uHeight || 1), 0);
+          const rPower = r.installedDevices.reduce((sum, d) => sum + (store.getTemplate(d.templateId)?.powerW || 0), 0);
+          const rCables = store.getCablesForRack(r.id);
+          return `
+            <div style="margin-bottom:20px; page-break-inside:avoid; break-inside:avoid;">
+              <div style="display:flex; justify-content:space-between; align-items:baseline; border-bottom:1px solid #cbd5e1; padding-bottom:4px; margin-bottom:10px;">
+                <h3 style="font-size:13px; font-weight:700; color:#0f172a; margin:0;">
+                  1.${idx + 1}. Стойка "${escapeHtml(r.name)}" (${escapeHtml(r.model || `19" ${r.uHeight}U`)})
+                </h3>
+                <div style="font-size:11px; color:#475569;">
+                  Занятость: <b>${rOccupied}/${r.uHeight}U</b> • Оборудование: <b>${r.installedDevices.length}</b> • Мощность: <b>${rPower} Вт</b> • Кабели: <b>${rCables.length}</b>
+                </div>
+              </div>
+              ${this.captureRackSnapshotMarkup(r.id)}
+            </div>
+          `;
+        }).join('');
+
+        parts.push(`
+          <section class="print-section" style="margin-top:16px;">
+            <h2 style="font-size:14px; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1; padding-bottom:6px; margin-bottom:14px;">
+              1. Монтажные схемы стоек (${allRacks.length} шт.)
+            </h2>
+            ${rackBlocks}
+          </section>
+        `);
+      } else {
+        parts.push(`
+          <section class="print-section" style="margin-top:16px;">
+            <h2 style="font-size:14px; font-weight:700; color:#0f172a; border-bottom:1px solid #cbd5e1; padding-bottom:4px; margin-bottom:10px;">
+              1. Монтажная схема шкафа (${escapeHtml(activeRack.name)})
+            </h2>
+            ${this.captureRackSnapshotMarkup(activeRack.id)}
+          </section>
+        `);
+      }
     }
 
+    // --- Section 2: Topology ---
     if (opts.includeTopology && this.topologyRenderer) {
       const model = this.topologyRenderer.computeTopologyModel({
-        scope: opts.topologyScope,
+        scope: isAllScope ? 'all' : 'active',
         aggregateBundles: true,
         showStandalone: true
       });
@@ -292,7 +418,7 @@ export class PrintPassport {
       parts.push(`
         <section class="print-section" style="margin-top:18px;">
           <h2 style="font-size:14px; font-weight:700; color:#0f172a; border-bottom:1px solid #cbd5e1; padding-bottom:4px; margin-bottom:10px;">
-            Логическая топология сети (${opts.topologyScope === 'all' ? 'Все стойки' : escapeHtml(rack.name)})
+            2. Логическая топология сети (${isAllScope ? `Все стойки (${allRacks.length} шт.)` : escapeHtml(activeRack.name)})
           </h2>
           <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px; background:#ffffff; text-align:center;">
             ${topoSvg}
@@ -301,13 +427,19 @@ export class PrintPassport {
       `);
     }
 
+    // --- Section 3: Cables ---
     if (opts.includeCables) {
+      const cablesToRender = isAllScope ? (store.state.cables || []) : store.getCablesForActiveRack();
+      const sectionTitle = isAllScope
+        ? `3. Сводный журнал подключений (Патч-корды: ${cablesToRender.length})`
+        : `3. Журнал подключений (Патч-корды: ${cablesToRender.length})`;
+
       parts.push(`
         <section class="print-section" style="margin-top:18px;">
           <h2 style="font-size:14px; font-weight:700; color:#0f172a; border-bottom:1px solid #cbd5e1; padding-bottom:4px; margin-bottom:10px;">
-            Журнал подключений (Патч-корды: ${cables.length})
+            ${sectionTitle}
           </h2>
-          ${cables.length === 0 ? '<p style="font-size:12px; color:#64748b;">Нет подключённых кабелей.</p>' : `
+          ${cablesToRender.length === 0 ? '<p style="font-size:12px; color:#64748b;">Нет подключённых кабелей.</p>' : `
             <table style="width:100%; border-collapse:collapse; font-size:11px; color:#0f172a;">
               <thead>
                 <tr style="background:#f1f5f9; text-align:left;">
@@ -321,22 +453,31 @@ export class PrintPassport {
                 </tr>
               </thead>
               <tbody>
-                ${cables.map((c, idx) => {
+                ${cablesToRender.map((c, idx) => {
                   const fromLoc = findDeviceLocation(store.state, c.from.deviceId);
                   const toLoc = findDeviceLocation(store.state, c.to.deviceId);
                   const inter = store.isInterRackCable(c);
                   const grp = c.groupId ? store.getGroup(c.groupId) : null;
                   const fromPort = getPortDisplayName(fromLoc?.template, c.from.portId);
                   const toPort = getPortDisplayName(toLoc?.template, c.to.portId);
-                  const fromLabel = `${inter && fromLoc ? `[${fromLoc.rack.name}] ` : ''}${fromLoc?.device?.customName || c.from.deviceId} : ${fromPort}`;
-                  const toLabel = `${inter && toLoc ? `[${toLoc.rack.name}] ` : ''}${toLoc?.device?.customName || c.to.deviceId} : ${toPort}`;
+                  const fromPrefix = isAllScope
+                    ? (fromLoc?.rack?.name ? `[${fromLoc.rack.name}] ` : '')
+                    : (inter && fromLoc ? `[${fromLoc.rack.name}] ` : '');
+                  const toPrefix = isAllScope
+                    ? (toLoc?.rack?.name ? `[${toLoc.rack.name}] ` : '')
+                    : (inter && toLoc ? `[${toLoc.rack.name}] ` : '');
+                  const fromLabel = `${fromPrefix}${fromLoc?.device?.customName || c.from.deviceId} : ${fromPort}`;
+                  const toLabel = `${toPrefix}${toLoc?.device?.customName || c.to.deviceId} : ${toPort}`;
+                  const typeLabel = isAllScope
+                    ? `${escapeHtml(c.type)}${inter ? ' (Межст.)' : ' (Внутр.)'}`
+                    : `${escapeHtml(c.type)}${inter ? ' (Межст.)' : ''}`;
                   return `
                     <tr>
                       <td style="border:1px solid #cbd5e1; padding:4px 7px; font-family:monospace;">${idx + 1}</td>
                       <td style="border:1px solid #cbd5e1; padding:4px 7px; font-family:monospace;">${escapeHtml(fromLabel)}</td>
                       <td style="border:1px solid #cbd5e1; padding:4px 7px; font-family:monospace;">${escapeHtml(toLabel)}</td>
                       <td style="border:1px solid #cbd5e1; padding:4px 7px;">${grp ? escapeHtml(grp.name) : 'Инфраструктура'}</td>
-                      <td style="border:1px solid #cbd5e1; padding:4px 7px;">${escapeHtml(c.type)}${inter ? ' (Межст.)' : ''}</td>
+                      <td style="border:1px solid #cbd5e1; padding:4px 7px;">${typeLabel}</td>
                       <td style="border:1px solid #cbd5e1; padding:4px 7px; font-family:monospace;">${escapeHtml(c.lengthM)} м</td>
                       <td style="border:1px solid #cbd5e1; padding:4px 7px;">${escapeHtml(c.label || '—')}</td>
                     </tr>
@@ -349,58 +490,123 @@ export class PrintPassport {
       `);
     }
 
+    // --- Section 4: Devices ---
     if (opts.includeDevices) {
-      const sortedDevs = [...rack.installedDevices].sort((a, b) => (b.uPosition || 0) - (a.uPosition || 0));
-      parts.push(`
-        <section class="print-section" style="margin-top:18px;">
-          <h2 style="font-size:14px; font-weight:700; color:#0f172a; border-bottom:1px solid #cbd5e1; padding-bottom:4px; margin-bottom:10px;">
-            Состав оборудования (${sortedDevs.length} устр.)
-          </h2>
-          ${sortedDevs.length === 0 ? '<p style="font-size:12px; color:#64748b;">Стойка пуста.</p>' : `
-            <table style="width:100%; border-collapse:collapse; font-size:11px; color:#0f172a;">
-              <thead>
-                <tr style="background:#f1f5f9; text-align:left;">
-                  <th style="border:1px solid #cbd5e1; padding:5px 7px;">Юнит</th>
-                  <th style="border:1px solid #cbd5e1; padding:5px 7px;">Имя в стойке</th>
-                  <th style="border:1px solid #cbd5e1; padding:5px 7px;">Модель / Вендор</th>
-                  <th style="border:1px solid #cbd5e1; padding:5px 7px;">IP управления</th>
-                  <th style="border:1px solid #cbd5e1; padding:5px 7px;">Примечания</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${sortedDevs.map(dev => {
-                  const tpl = store.getTemplate(dev.templateId);
-                  return `
-                    <tr>
-                      <td style="border:1px solid #cbd5e1; padding:4px 7px; font-family:monospace;">U${dev.uPosition} (${tpl?.uHeight || 1}U)</td>
-                      <td style="border:1px solid #cbd5e1; padding:4px 7px; font-weight:600;">${escapeHtml(dev.customName)}</td>
-                      <td style="border:1px solid #cbd5e1; padding:4px 7px;">${escapeHtml(tpl?.vendor || '')} ${escapeHtml(tpl?.name || '')}</td>
-                      <td style="border:1px solid #cbd5e1; padding:4px 7px; font-family:monospace;">${escapeHtml(dev.ipAddress || '—')}</td>
-                      <td style="border:1px solid #cbd5e1; padding:4px 7px;">${escapeHtml(dev.notes || '—')}</td>
-                    </tr>
-                  `;
-                }).join('')}
-              </tbody>
-            </table>
-          `}
-        </section>
-      `);
+      if (isAllScope) {
+        const allDeviceRows = [];
+        allRacks.forEach(r => {
+          const sorted = [...r.installedDevices].sort((a, b) => (b.uPosition || 0) - (a.uPosition || 0));
+          sorted.forEach(dev => {
+            allDeviceRows.push({ dev, rack: r });
+          });
+        });
+
+        parts.push(`
+          <section class="print-section" style="margin-top:18px;">
+            <h2 style="font-size:14px; font-weight:700; color:#0f172a; border-bottom:1px solid #cbd5e1; padding-bottom:4px; margin-bottom:10px;">
+              4. Сводная спецификация оборудования (${allDeviceRows.length} устр.)
+            </h2>
+            ${allDeviceRows.length === 0 ? '<p style="font-size:12px; color:#64748b;">В проекте нет оборудования.</p>' : `
+              <table style="width:100%; border-collapse:collapse; font-size:11px; color:#0f172a;">
+                <thead>
+                  <tr style="background:#f1f5f9; text-align:left;">
+                    <th style="border:1px solid #cbd5e1; padding:5px 7px;">Стойка</th>
+                    <th style="border:1px solid #cbd5e1; padding:5px 7px;">Юнит</th>
+                    <th style="border:1px solid #cbd5e1; padding:5px 7px;">Имя в стойке</th>
+                    <th style="border:1px solid #cbd5e1; padding:5px 7px;">Модель / Вендор</th>
+                    <th style="border:1px solid #cbd5e1; padding:5px 7px;">IP управления</th>
+                    <th style="border:1px solid #cbd5e1; padding:5px 7px;">Примечания</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${allDeviceRows.map(({ dev, rack: devRack }) => {
+                    const tpl = store.getTemplate(dev.templateId);
+                    return `
+                      <tr>
+                        <td style="border:1px solid #cbd5e1; padding:4px 7px; font-weight:600;">${escapeHtml(devRack.name)}</td>
+                        <td style="border:1px solid #cbd5e1; padding:4px 7px; font-family:monospace;">U${dev.uPosition} (${tpl?.uHeight || 1}U)</td>
+                        <td style="border:1px solid #cbd5e1; padding:4px 7px; font-weight:600;">${escapeHtml(dev.customName)}</td>
+                        <td style="border:1px solid #cbd5e1; padding:4px 7px;">${escapeHtml(tpl?.vendor || '')} ${escapeHtml(tpl?.name || '')}</td>
+                        <td style="border:1px solid #cbd5e1; padding:4px 7px; font-family:monospace;">${escapeHtml(dev.ipAddress || '—')}</td>
+                        <td style="border:1px solid #cbd5e1; padding:4px 7px;">${escapeHtml(dev.notes || '—')}</td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            `}
+          </section>
+        `);
+      } else {
+        const sortedDevs = [...activeRack.installedDevices].sort((a, b) => (b.uPosition || 0) - (a.uPosition || 0));
+        parts.push(`
+          <section class="print-section" style="margin-top:18px;">
+            <h2 style="font-size:14px; font-weight:700; color:#0f172a; border-bottom:1px solid #cbd5e1; padding-bottom:4px; margin-bottom:10px;">
+              4. Состав оборудования (${sortedDevs.length} устр.)
+            </h2>
+            ${sortedDevs.length === 0 ? '<p style="font-size:12px; color:#64748b;">Стойка пуста.</p>' : `
+              <table style="width:100%; border-collapse:collapse; font-size:11px; color:#0f172a;">
+                <thead>
+                  <tr style="background:#f1f5f9; text-align:left;">
+                    <th style="border:1px solid #cbd5e1; padding:5px 7px;">Юнит</th>
+                    <th style="border:1px solid #cbd5e1; padding:5px 7px;">Имя в стойке</th>
+                    <th style="border:1px solid #cbd5e1; padding:5px 7px;">Модель / Вендор</th>
+                    <th style="border:1px solid #cbd5e1; padding:5px 7px;">IP управления</th>
+                    <th style="border:1px solid #cbd5e1; padding:5px 7px;">Примечания</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${sortedDevs.map(dev => {
+                    const tpl = store.getTemplate(dev.templateId);
+                    return `
+                      <tr>
+                        <td style="border:1px solid #cbd5e1; padding:4px 7px; font-family:monospace;">U${dev.uPosition} (${tpl?.uHeight || 1}U)</td>
+                        <td style="border:1px solid #cbd5e1; padding:4px 7px; font-weight:600;">${escapeHtml(dev.customName)}</td>
+                        <td style="border:1px solid #cbd5e1; padding:4px 7px;">${escapeHtml(tpl?.vendor || '')} ${escapeHtml(tpl?.name || '')}</td>
+                        <td style="border:1px solid #cbd5e1; padding:4px 7px; font-family:monospace;">${escapeHtml(dev.ipAddress || '—')}</td>
+                        <td style="border:1px solid #cbd5e1; padding:4px 7px;">${escapeHtml(dev.notes || '—')}</td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            `}
+          </section>
+        `);
+      }
     }
 
+    // --- Section 5: CLI Configs ---
     if (opts.includeCli) {
-      const cliDevs = [...rack.installedDevices]
-        .filter(d => d.cliConfig && d.cliConfig.trim())
-        .sort((a, b) => (b.uPosition || 0) - (a.uPosition || 0));
+      const cliDevs = [];
+      if (isAllScope) {
+        allRacks.forEach(r => {
+          const devs = [...r.installedDevices]
+            .filter(d => d.cliConfig && d.cliConfig.trim())
+            .sort((a, b) => (b.uPosition || 0) - (a.uPosition || 0));
+          devs.forEach(dev => {
+            cliDevs.push({ dev, rack: r });
+          });
+        });
+      } else {
+        const devs = [...activeRack.installedDevices]
+          .filter(d => d.cliConfig && d.cliConfig.trim())
+          .sort((a, b) => (b.uPosition || 0) - (a.uPosition || 0));
+        devs.forEach(dev => {
+          cliDevs.push({ dev, rack: activeRack });
+        });
+      }
+
       if (cliDevs.length > 0) {
         parts.push(`
           <section class="print-section" style="margin-top:18px;">
             <h2 style="font-size:14px; font-weight:700; color:#0f172a; border-bottom:1px solid #cbd5e1; padding-bottom:4px; margin-bottom:10px;">
-              Конфигурации CLI устройств (${cliDevs.length})
+              5. Конфигурации CLI устройств (${cliDevs.length})
             </h2>
-            ${cliDevs.map(d => `
+            ${cliDevs.map(({ dev: d, rack: devRack }) => `
               <div style="margin-bottom:12px; border:1px solid #cbd5e1; border-radius:6px; overflow:hidden; break-inside:avoid;">
                 <div style="background:#f1f5f9; padding:5px 8px; font-size:11px; font-weight:700; color:#0f172a; border-bottom:1px solid #cbd5e1;">
-                  ${escapeHtml(d.customName)} (U${d.uPosition}${d.ipAddress ? ` • ${escapeHtml(d.ipAddress)}` : ''})
+                  ${isAllScope ? `[${escapeHtml(devRack.name)}] ` : ''}${escapeHtml(d.customName)} (U${d.uPosition}${d.ipAddress ? ` • ${escapeHtml(d.ipAddress)}` : ''})
                 </div>
                 <pre style="margin:0; padding:8px; font-family:monospace; font-size:10px; white-space:pre-wrap; background:#ffffff; color:#1e293b;">${escapeHtml(d.cliConfig)}</pre>
               </div>
@@ -418,6 +624,7 @@ export class PrintPassport {
   }
 
   refreshReport() {
+    this.updateScopeSelectLabels();
     const html = this.buildReportHtml();
     const previewEl = this.modal?.querySelector('#print-preview-container');
     if (previewEl) {

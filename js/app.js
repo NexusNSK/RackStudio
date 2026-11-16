@@ -68,9 +68,9 @@ class App {
       topologyRenderer: this.topologyRenderer,
       onEnsureRackRendered: null
     });
-    // Provide clean hidden snapshot helper so printing from Topology view still captures rack & cables
-    this.printPassport.captureRackSnapshotMarkup = () => {
-      return this.withRackRenderedForSnapshot(() => PrintPassport.prototype.captureRackSnapshotMarkup.call(this.printPassport));
+    // Provide clean hidden snapshot helper so printing captures rack & cables for any rack
+    this.printPassport.captureRackSnapshotMarkup = (targetRackId = null) => {
+      return this.withRackRenderedForSnapshot(targetRackId, () => PrintPassport.prototype.captureRackSnapshotMarkup.call(this.printPassport, targetRackId));
     };
 
     this.editingRackId = null;
@@ -498,25 +498,49 @@ class App {
     }
   }
 
-  withRackRenderedForSnapshot(callback) {
-    if (this.workspaceView !== 'topology' || !this.rackViewport) {
-      this.rackRenderer.render();
-      this.cableRenderer.render();
-      return callback();
+  withRackRenderedForSnapshot(rackIdOrCallback, maybeCallback) {
+    let targetRackId = null;
+    let callback = null;
+    if (typeof rackIdOrCallback === 'function') {
+      callback = rackIdOrCallback;
+      targetRackId = store.getActiveRack()?.id;
+    } else {
+      targetRackId = rackIdOrCallback || store.getActiveRack()?.id;
+      callback = maybeCallback;
     }
-    const prevVis = this.rackViewport.style.visibility;
-    const prevPos = this.rackViewport.style.position;
-    this.rackViewport.style.visibility = 'hidden';
-    this.rackViewport.style.position = 'fixed';
-    this.rackViewport.classList.remove('hidden');
+
+    const prevActiveId = store.state.activeRackId;
+    const needSwitch = targetRackId && targetRackId !== prevActiveId;
+    if (needSwitch) {
+      store.state.activeRackId = targetRackId;
+    }
+
+    const wasHidden = this.workspaceView === 'topology' || !this.rackViewport || this.rackViewport.classList.contains('hidden');
+    const prevVis = this.rackViewport?.style.visibility;
+    const prevPos = this.rackViewport?.style.position;
+
+    if (wasHidden && this.rackViewport) {
+      this.rackViewport.style.visibility = 'hidden';
+      this.rackViewport.style.position = 'fixed';
+      this.rackViewport.classList.remove('hidden');
+    }
+
     this.rackRenderer.render();
     this.cableRenderer.render();
+
     try {
       return callback();
     } finally {
-      this.rackViewport.classList.add('hidden');
-      this.rackViewport.style.visibility = prevVis;
-      this.rackViewport.style.position = prevPos;
+      if (wasHidden && this.rackViewport) {
+        this.rackViewport.classList.add('hidden');
+        this.rackViewport.style.visibility = prevVis || '';
+        this.rackViewport.style.position = prevPos || '';
+      }
+      if (needSwitch) {
+        store.state.activeRackId = prevActiveId;
+        this.rackRenderer.render();
+        this.cableRenderer.render();
+      }
     }
   }
 

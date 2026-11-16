@@ -315,11 +315,15 @@ class StateStore {
     return this.state.activeGroupFilter;
   }
 
+  getCablesForRack(rackId) {
+    const rack = this.getRacks().find(r => r.id === rackId);
+    if (!rack) return [];
+    const deviceIds = new Set(rack.installedDevices.map(d => d.id));
+    return (this.state.cables || []).filter(c => deviceIds.has(c.from.deviceId) || deviceIds.has(c.to.deviceId));
+  }
+
   getCablesForActiveRack() {
-    const activeRack = this.getActiveRack();
-    if (!activeRack) return [];
-    const deviceIds = new Set(activeRack.installedDevices.map(d => d.id));
-    return this.state.cables.filter(c => deviceIds.has(c.from.deviceId) || deviceIds.has(c.to.deviceId));
+    return this.getCablesForRack(this.state.activeRackId);
   }
 
   findDeviceLocation(deviceId) {

@@ -15,3 +15,5 @@ desktop.ini
 # Test profiles
 tests/.*
 tests/*_profile/
+__pycache__/
+*.pyc
