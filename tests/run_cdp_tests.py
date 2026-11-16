@@ -593,6 +593,37 @@ async def run_test_suite():
             selected_cable_id = await client.eval("window.store.selectedEntity?.id || null")
             cable_channel_selectable = (hover_id == cable_connected and selected_cable_id == cable_connected)
         record("Hover and click along cable channel hits cable cleanly", cable_channel_selectable, f"pt={cable_pt}, hover={hover_id if cable_pt else None}, sel={selected_cable_id if cable_pt else None}")
+
+        # Verify hovered port number renders on top of patch cords (z-index >= 40/50 above cables-svg z-30)
+        port_hover_layering_ok = await client.eval(f"""
+            (() => {{
+                const rack = window.store.getActiveRack();
+                const sw = rack.installedDevices.find(d => d.templateId === 'tpl-switch-24p');
+                if (!sw) return false;
+                const swEl = document.querySelector(`#rack-container .installed-device[data-device-id="${{sw.id}}"]`);
+                const portSlot = swEl?.querySelector('.port-slot[data-port-id="p-1"]');
+                const portNum = portSlot?.querySelector('.port-num');
+                const svg = document.getElementById('cables-svg');
+                if (!portSlot || !portNum || !svg) return false;
+
+                portSlot.classList.add('port-cable-hover');
+                const devZ = window.getComputedStyle(swEl).zIndex;
+                const slotZ = parseInt(window.getComputedStyle(portSlot).zIndex, 10);
+                const numZ = parseInt(window.getComputedStyle(portNum).zIndex, 10);
+                const numOpacity = parseFloat(window.getComputedStyle(portNum).opacity);
+                const svgZ = parseInt(window.getComputedStyle(svg).zIndex, 10);
+                portSlot.classList.remove('port-cable-hover');
+
+                return (
+                    (devZ === 'auto' || parseInt(devZ, 10) < svgZ) &&
+                    slotZ >= 40 &&
+                    numZ >= 50 &&
+                    numOpacity >= 0.95 &&
+                    numZ > svgZ
+                );
+            }})()
+        """)
+        record("Hovered port number renders on top of patch cords with elevated z-index", bool(port_hover_layering_ok))
         # -------------------------------------------------------------
         # TEST 6: Switch CLI Terminal Modal
         # -------------------------------------------------------------

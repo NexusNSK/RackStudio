@@ -59,9 +59,25 @@ body {
   border-bottom: 1px solid rgba(0, 0, 0, 0.4);
 }
 
+.installed-device {
+  z-index: auto !important;
+}
+
+.installed-device:hover {
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.25);
+}
+
+.ports-container {
+  z-index: auto !important;
+}
+
 .port-jack {
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.1);
   transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.port-slot:hover {
+  z-index: 40 !important;
 }
 
 .port-slot:hover .port-jack {
@@ -72,7 +88,7 @@ body {
 }
 
 .port-cable-hover {
-  z-index: 60 !important;
+  z-index: 40 !important;
 }
 
 .port-cable-hover .port-jack {
@@ -88,10 +104,14 @@ body {
 
 .port-num {
   transition: transform 0.15s ease, color 0.15s ease;
+  z-index: 40;
 }
 
+.port-slot:hover .port-num,
 .port-cable-hover .port-num {
   opacity: 1 !important;
+  z-index: 50 !important;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.95), 0 0 6px rgba(0, 0, 0, 0.9);
 }
 
 .port-slot[data-label-pos="top"]:hover .port-num,

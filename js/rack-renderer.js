@@ -186,7 +186,7 @@ export class RackRenderer {
     }
 
     return `
-      <div class="installed-device relative select-none cursor-grab transition-all ${isSelected ? 'ring-2 ring-cyan-400 z-20' : 'hover:brightness-105 z-10'}"
+      <div class="installed-device relative select-none cursor-grab transition-all ${isSelected ? 'ring-2 ring-cyan-400' : ''}"
            style="height: ${heightPx}px; ${faceStyle}"
            data-device-id="${device.id}"
            data-u="${device.uPosition}">
@@ -204,7 +204,7 @@ export class RackRenderer {
             </div>
           `}
 
-          <div class="ports-container absolute inset-0 z-20 pointer-events-auto">
+          <div class="ports-container absolute inset-0 pointer-events-auto">
             ${portsHtml}
           </div>
         </div>
@@ -292,11 +292,11 @@ export class RackRenderer {
           : (port.number || '')))
       : (port.label || port.number || '');
     const portLabelClass = hasCustomImage
-      ? 'opacity-0 group-hover:opacity-100 group-hover:z-40 bg-slate-950/90 text-cyan-200 px-1 py-0.5 rounded shadow'
+      ? 'opacity-0 group-hover:opacity-100 group-hover:z-50 bg-slate-950/90 text-cyan-200 px-1 py-0.5 rounded shadow'
       : (isSilver ? 'text-slate-700 group-hover:text-cyan-700' : 'text-slate-400 group-hover:text-cyan-300');
 
     return `
-      <div class="port-slot absolute flex items-center justify-center -translate-x-1/2 -translate-y-1/2 cursor-crosshair group transition-all hover:z-30 ${isDraftSource ? 'port-draft-source' : ''}"
+      <div class="port-slot absolute flex items-center justify-center -translate-x-1/2 -translate-y-1/2 cursor-crosshair group transition-all hover:z-40 ${isDraftSource ? 'port-draft-source' : ''}"
            style="left: ${port.x}%; top: ${port.y}%;"
            title="${port.name}${port.speed ? ` (${port.speed})` : ''}${remoteTitleSuffix}"
            data-device-id="${device.id}"
@@ -306,7 +306,7 @@ export class RackRenderer {
            data-inter-rack="${isInterRack ? 'true' : 'false'}"
            data-label-pos="${isLabelAbove ? 'top' : 'bottom'}">
         
-        <div class="port-jack ${portSize} rounded-[3px] border flex items-center justify-center relative ${portColorClass} transition-all duration-200 group-hover:scale-125 group-hover:border-cyan-400 group-hover:z-30"
+        <div class="port-jack ${portSize} rounded-[3px] border flex items-center justify-center relative ${portColorClass} transition-all duration-200 group-hover:scale-125 group-hover:border-cyan-400 group-hover:z-50"
              style="${glowStyle}">
           ${portIcon}
 
