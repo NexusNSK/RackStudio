@@ -62,9 +62,13 @@ class StateStore {
     const knownIds = new Set(targetState.knownDefaultTemplateIds);
 
     DEFAULT_DEVICE_TEMPLATES.forEach(dt => {
-      if (!existingIds.has(dt.id) && !knownIds.has(dt.id)) {
-        targetState.templates.push(JSON.parse(JSON.stringify(dt)));
-      } else if (dt.id === 'tpl-eltex-mes2324' || dt.id === 'tpl-eltex-mes2324p' || dt.id === 'tpl-eltex-mes2324b' || dt.id === 'tpl-eltex-ltp-4x' || dt.id === 'tpl-eltex-tau-32') {
+      const isEltexBuiltin = dt.id.startsWith('tpl-eltex-');
+      if (!existingIds.has(dt.id)) {
+        if (isEltexBuiltin || !knownIds.has(dt.id)) {
+          targetState.templates.push(JSON.parse(JSON.stringify(dt)));
+          existingIds.add(dt.id);
+        }
+      } else if (isEltexBuiltin) {
         const existingTpl = targetState.templates.find(t => t.id === dt.id);
         if (existingTpl) {
           const hasConsole = existingTpl.ports?.some(p => p.type === 'console');
