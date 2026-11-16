@@ -716,7 +716,7 @@ export class TopologyRenderer {
         const shortTo = pTo.replace(/^Port\s+/i, 'P');
         labelText = `${shortFrom} ⇄ ${shortTo}`;
       } else {
-        const grpTitle = edge.group ? `VLAN ${edge.group.vlan}` : (primaryCable.type || 'Линки');
+        const grpTitle = edge.group ? edge.group.name : (primaryCable.type || 'Линки');
         labelText = `${grpTitle} · ×${edge.cables.length}`;
       }
 

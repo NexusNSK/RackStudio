@@ -255,11 +255,11 @@ export class PrintPassport {
 
           ${groups.length > 0 ? `
             <div style="font-size:11px; color:#334155; display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
-              <span style="font-weight:700;">Рабочие группы / VLAN:</span>
+              <span style="font-weight:700;">Рабочие группы:</span>
               ${groups.map(g => `
                 <span style="display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border:1px solid #cbd5e1; border-radius:999px; background:#fff;">
                   <span style="width:8px; height:8px; border-radius:50%; background:${escapeHtml(g.color)}; display:inline-block;"></span>
-                  <span>${escapeHtml(g.name)} (VLAN ${escapeHtml(g.vlan || 10)})</span>
+                  <span>${escapeHtml(g.name)}</span>
                 </span>
               `).join('')}
             </div>
@@ -314,7 +314,7 @@ export class PrintPassport {
                   <th style="border:1px solid #cbd5e1; padding:5px 7px;">№</th>
                   <th style="border:1px solid #cbd5e1; padding:5px 7px;">Сторона А</th>
                   <th style="border:1px solid #cbd5e1; padding:5px 7px;">Сторона Б</th>
-                  <th style="border:1px solid #cbd5e1; padding:5px 7px;">Группа / VLAN</th>
+                  <th style="border:1px solid #cbd5e1; padding:5px 7px;">Группа</th>
                   <th style="border:1px solid #cbd5e1; padding:5px 7px;">Тип кабеля</th>
                   <th style="border:1px solid #cbd5e1; padding:5px 7px;">Длина</th>
                   <th style="border:1px solid #cbd5e1; padding:5px 7px;">Метка</th>
@@ -335,7 +335,7 @@ export class PrintPassport {
                       <td style="border:1px solid #cbd5e1; padding:4px 7px; font-family:monospace;">${idx + 1}</td>
                       <td style="border:1px solid #cbd5e1; padding:4px 7px; font-family:monospace;">${escapeHtml(fromLabel)}</td>
                       <td style="border:1px solid #cbd5e1; padding:4px 7px; font-family:monospace;">${escapeHtml(toLabel)}</td>
-                      <td style="border:1px solid #cbd5e1; padding:4px 7px;">${grp ? `${escapeHtml(grp.name)} (VLAN ${escapeHtml(grp.vlan || 10)})` : 'Инфраструктура'}</td>
+                      <td style="border:1px solid #cbd5e1; padding:4px 7px;">${grp ? escapeHtml(grp.name) : 'Инфраструктура'}</td>
                       <td style="border:1px solid #cbd5e1; padding:4px 7px;">${escapeHtml(c.type)}${inter ? ' (Межст.)' : ''}</td>
                       <td style="border:1px solid #cbd5e1; padding:4px 7px; font-family:monospace;">${escapeHtml(c.lengthM)} м</td>
                       <td style="border:1px solid #cbd5e1; padding:4px 7px;">${escapeHtml(c.label || '—')}</td>

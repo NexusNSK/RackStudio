@@ -571,15 +571,9 @@
           <input type="text" id="grp-name-input" required placeholder="Например: АРМ №3 (Касса)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
         </div>
 
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-slate-300 font-medium mb-1">Цвет подсветки</label>
-            <input type="color" id="grp-color-input" value="#00d2ff" class="w-full h-9 bg-slate-900 border border-slate-700 rounded-lg p-1 cursor-pointer">
-          </div>
-          <div>
-            <label class="block text-slate-300 font-medium mb-1">VLAN ID</label>
-            <input type="number" id="grp-vlan-input" value="10" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
-          </div>
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">Цвет подсветки</label>
+          <input type="color" id="grp-color-input" value="#00d2ff" class="w-full h-9 bg-slate-900 border border-slate-700 rounded-lg p-1 cursor-pointer">
         </div>
 
         <div>
@@ -691,7 +685,7 @@
               <div class="space-y-2.5 text-slate-300">
                 <label class="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" id="print-opt-summary" checked class="rounded border-slate-700 bg-slate-900 text-cyan-500">
-                  <span>Титульная сводка и VLAN</span>
+                  <span>Титульная сводка и группы</span>
                 </label>
                 <label class="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" id="print-opt-rack" checked class="rounded border-slate-700 bg-slate-900 text-cyan-500">

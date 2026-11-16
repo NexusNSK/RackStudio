@@ -768,15 +768,20 @@ class StateStore {
   }
 
   // Workplace Groups
-  addGroup(name, color = '#00d2ff', vlan = 10, description = '', rackId = null) {
-    const targetRackId = rackId || this.state.activeRackId;
+  addGroup(name, color = '#00d2ff', description = '', rackId = null) {
+    let desc = description;
+    let targetRackId = rackId;
+    if (typeof description === 'number') {
+      desc = arguments[3] || '';
+      targetRackId = arguments[4] || null;
+    }
+    targetRackId = targetRackId || this.state.activeRackId;
     const newGroup = {
       id: `grp-${Date.now()}-${++this._idSeq}`,
       rackId: targetRackId,
       name,
       color,
-      vlan,
-      description
+      description: desc
     };
     if (!this.state.groups) this.state.groups = [];
     this.state.groups.push(newGroup);

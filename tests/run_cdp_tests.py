@@ -451,12 +451,10 @@ async def run_test_suite():
             (() => {
                 const nameInp = document.getElementById('grp-name-input');
                 const colorInp = document.getElementById('grp-color-input');
-                const vlanInp = document.getElementById('grp-vlan-input');
                 const form = document.getElementById('group-form');
                 
                 nameInp.value = 'Рабочее место Инженер 1 (CAD)';
                 colorInp.value = '#00ffcc';
-                vlanInp.value = '30';
                 
                 const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
                 form.dispatchEvent(submitEvent);
@@ -467,7 +465,7 @@ async def run_test_suite():
             })()
         """)
         await asyncio.sleep(0.4)
-        record("Add new workplace group (VLAN 30, #00ffcc)", bool(new_group_id), f"Group ID: {new_group_id}")
+        record("Add new workplace group (#00ffcc)", bool(new_group_id), f"Group ID: {new_group_id}")
 
         # Check badge rendered in workplace filter bar
         filter_pills_count = await client.eval("document.querySelectorAll('#workplace-filter-bar .filter-pill').length")
@@ -514,7 +512,7 @@ async def run_test_suite():
                 const title = document.getElementById('group-modal-title')?.textContent || '';
                 const nameVal = document.getElementById('grp-name-input')?.value || '';
                 const colorVal = document.getElementById('grp-color-input')?.value || '';
-                const vlanVal = document.getElementById('grp-vlan-input')?.value || '';
+                const hasVlanInput = Boolean(document.getElementById('grp-vlan-input'));
                 const btnText = document.getElementById('grp-submit-btn')?.textContent || '';
                 const cancelBtnVisible = !document.getElementById('grp-cancel-edit-btn')?.classList.contains('hidden');
 
@@ -527,7 +525,6 @@ async def run_test_suite():
                 window.openEditGroupModal('{new_group_id}');
                 document.getElementById('grp-name-input').value = 'Рабочее место Инженер 1 (Updated)';
                 document.getElementById('grp-color-input').value = '#a855f7';
-                document.getElementById('grp-vlan-input').value = '35';
                 const submitEv = new Event('submit', {{ bubbles: true, cancelable: true }});
                 document.getElementById('group-form').dispatchEvent(submitEv);
 
@@ -539,21 +536,20 @@ async def run_test_suite():
                     editTitleOk: title.includes('Редактирование группы'),
                     nameVal,
                     colorVal,
-                    vlanVal,
+                    noVlanField: !hasVlanInput,
                     btnText: btnText.includes('Сохранить изменения'),
                     cancelBtnVisible,
                     resetBtnText: resetBtnText.includes('Создать группу'),
                     resetName: resetName === '',
                     updatedName: updatedGrp?.name === 'Рабочее место Инженер 1 (Updated)',
                     updatedColor: updatedGrp?.color === '#a855f7',
-                    updatedVlan: updatedGrp?.vlan === 35,
                     pillHasUpdatedName: pillText.includes('Рабочее место Инженер 1 (Updated)'),
                     pillHasUpdatedColor: pillDot.includes('#a855f7')
                 }};
             }})()
         """)
         record("Edit connection group in modal updates store & filter UI",
-               bool(edit_ui_test and edit_ui_test["editTitleOk"] and edit_ui_test["btnText"] and edit_ui_test["updatedName"] and edit_ui_test["updatedColor"] and edit_ui_test["pillHasUpdatedName"]),
+               bool(edit_ui_test and edit_ui_test["editTitleOk"] and edit_ui_test["noVlanField"] and edit_ui_test["btnText"] and edit_ui_test["updatedName"] and edit_ui_test["updatedColor"] and edit_ui_test["pillHasUpdatedName"]),
                str(edit_ui_test))
 
         # -------------------------------------------------------------

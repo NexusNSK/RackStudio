@@ -1200,7 +1200,7 @@ class App {
             <div class="truncate">
               <span class="font-bold text-white">${g.name}</span>
               ${isEditing ? '<span class="text-[10px] text-cyan-400 font-mono ml-1.5">[редактируется]</span>' : ''}
-              <span class="text-[10px] text-slate-400 font-mono ml-1.5">VLAN ${g.vlan || 10} • ${cablesCount} кабелей</span>
+              <span class="text-[10px] text-slate-400 font-mono ml-1.5">${cablesCount} кабелей</span>
             </div>
           </div>
           <div class="flex items-center gap-1 shrink-0">
@@ -1234,9 +1234,6 @@ class App {
     const colorInput = document.getElementById('grp-color-input');
     if (colorInput) colorInput.value = '#00d2ff';
 
-    const vlanInput = document.getElementById('grp-vlan-input');
-    if (vlanInput) vlanInput.value = '10';
-
     const descInput = document.getElementById('grp-desc-input');
     if (descInput) descInput.value = '';
 
@@ -1253,16 +1250,15 @@ class App {
     if (e) e.preventDefault();
     const name = document.getElementById('grp-name-input')?.value.trim();
     const color = document.getElementById('grp-color-input')?.value || '#00d2ff';
-    const vlan = parseInt(document.getElementById('grp-vlan-input')?.value, 10) || 10;
     const desc = document.getElementById('grp-desc-input')?.value.trim() || '';
 
     if (!name) return;
 
     if (this.editingGroupId) {
-      store.updateGroup(this.editingGroupId, { name, color, vlan, description: desc });
+      store.updateGroup(this.editingGroupId, { name, color, description: desc });
       this.closeAddGroupModal();
     } else {
-      store.addGroup(name, color, vlan, desc);
+      store.addGroup(name, color, desc);
       this.resetGroupForm();
     }
   }
@@ -1287,9 +1283,6 @@ class App {
 
     const colorInput = document.getElementById('grp-color-input');
     if (colorInput) colorInput.value = grp.color;
-
-    const vlanInput = document.getElementById('grp-vlan-input');
-    if (vlanInput) vlanInput.value = grp.vlan ?? 10;
 
     const descInput = document.getElementById('grp-desc-input');
     if (descInput) descInput.value = grp.description || '';
@@ -1517,7 +1510,7 @@ class App {
                 <option value="">(Без группы / Инфраструктура)</option>
                 ${groups.map(g => `
                   <option value="${g.id}" ${g.id === cable.groupId ? 'selected' : ''}>
-                    ${g.name} (VLAN ${g.vlan})${interRack && g.rackName ? ` [${g.rackName}]` : ''}
+                    ${g.name}${interRack && g.rackName ? ` [${g.rackName}]` : ''}
                   </option>
                 `).join('')}
               </select>
@@ -1623,7 +1616,7 @@ class App {
           <div class="border-b border-slate-800 pb-3">
             <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">Пучок кабелей • ×${bundleCables.length}</span>
             <h3 class="text-base font-bold text-slate-100 mt-1">${sel.fromName} ⇄ ${sel.toName}</h3>
-            ${grp ? `<p class="text-xs mt-1" style="color:${grp.color}">● ${grp.name} (VLAN ${grp.vlan})</p>` : '<p class="text-xs text-slate-400 mt-1">Инфраструктурные / без группы</p>'}
+            ${grp ? `<p class="text-xs mt-1" style="color:${grp.color}">● ${grp.name}</p>` : '<p class="text-xs text-slate-400 mt-1">Инфраструктурные / без группы</p>'}
           </div>
 
           <div class="space-y-1.5 max-h-[60vh] overflow-y-auto pr-1">
