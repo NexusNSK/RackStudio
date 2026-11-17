@@ -2009,7 +2009,7 @@ async def run_test_suite():
                 );
                 return {
                     open: modal && !modal.classList.contains('hidden'),
-                    hasSummary: txt.includes('Паспорт монтажного шкафа'),
+                    hasSummary: txt.includes('Конструктив:') && txt.includes('Занятость юнитов'),
                     hasRackSvg,
                     hasTopoSvg,
                     hasPortName,
