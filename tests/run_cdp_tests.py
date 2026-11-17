@@ -1,5 +1,5 @@
 """
-Chrome DevTools Protocol (CDP) Test Suite for RackStudio PRO
+Chrome DevTools Protocol (CDP) Test Suite for RackStudio
 Connects to Chromium/Edge headless via CDP over WebSockets.
 Tests all UI buttons, modals, state interactions, rendering, and consoles.
 """
@@ -164,7 +164,7 @@ def get_ws_url():
 
 async def run_test_suite():
     print("=" * 70)
-    print("  RackStudio PRO - Automated Chrome DevTools (CDP) Test Runner")
+    print("  RackStudio - Automated Chrome DevTools (CDP) Test Runner")
     print("=" * 70)
 
     print("\n[1/9] Launching Chromium (Edge) in headless mode with remote debugging...")

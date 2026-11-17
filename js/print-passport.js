@@ -258,7 +258,7 @@ export class PrintPassport {
           <section class="print-section print-header-card">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #0f172a; padding-bottom:10px; margin-bottom:14px;">
               <div>
-                <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:#0284c7; font-weight:700;">RackStudio PRO • Сводный паспорт серверных стоек проекта</div>
+                <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:#0284c7; font-weight:700;">RackStudio • Сводный паспорт серверных стоек проекта</div>
                 <h1 style="font-size:20px; font-weight:800; color:#0f172a; margin:4px 0 2px;">Все стойки проекта (${allRacks.length} шт.)</h1>
                 <div style="font-size:12px; color:#475569;">Сводная спецификация и схемы коммутации проекта</div>
               </div>
@@ -317,7 +317,7 @@ export class PrintPassport {
           <section class="print-section print-header-card">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #0f172a; padding-bottom:10px; margin-bottom:14px;">
               <div>
-                <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:#0284c7; font-weight:700;">RackStudio PRO • Паспорт монтажного шкафа</div>
+                <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:#0284c7; font-weight:700;">RackStudio • Паспорт монтажного шкафа</div>
                 <h1 style="font-size:20px; font-weight:800; color:#0f172a; margin:4px 0 2px;">${escapeHtml(activeRack.name)}</h1>
                 <div style="font-size:12px; color:#475569;">Конструктив: ${escapeHtml(activeRack.model || `19" ${activeRack.uHeight}U`)}</div>
               </div>
