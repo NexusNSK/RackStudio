@@ -69,8 +69,8 @@ class App {
       onEnsureRackRendered: null
     });
     // Provide clean hidden snapshot helper so printing captures rack & cables for any rack
-    this.printPassport.captureRackSnapshotMarkup = (targetRackId = null) => {
-      return this.withRackRenderedForSnapshot(targetRackId, () => PrintPassport.prototype.captureRackSnapshotMarkup.call(this.printPassport, targetRackId));
+    this.printPassport.captureRackSnapshotMarkup = (targetRackId = null, snapshotOpts = null) => {
+      return this.withRackRenderedForSnapshot(targetRackId, () => PrintPassport.prototype.captureRackSnapshotMarkup.call(this.printPassport, targetRackId, snapshotOpts));
     };
 
     this.editingRackId = null;

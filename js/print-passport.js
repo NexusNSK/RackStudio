@@ -125,9 +125,9 @@ export class PrintPassport {
     rootEl.querySelectorAll('*').forEach(stripNodeAttrs);
   }
 
-  captureRackSnapshotMarkup(targetRackId = null) {
+  captureRackSnapshotMarkup(targetRackId = null, snapshotOpts = null) {
     if (typeof this.onEnsureRackRendered === 'function') {
-      this.onEnsureRackRendered(targetRackId);
+      this.onEnsureRackRendered(targetRackId, snapshotOpts);
     }
     const stage = document.getElementById('rack-zoom-stage');
     if (!stage) return '';
@@ -196,13 +196,20 @@ export class PrintPassport {
     }
     clone.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
 
-    // Scale cleanly to ~660px printable width while preserving full side channels & sub-pixel alignment
-    const fitScale = 660 / totalW;
+    // Dynamically scale rack to fit A4 page height when combined with title summary
+    const maxPrintH = (snapshotOpts && snapshotOpts.maxHeight) || (snapshotOpts && snapshotOpts.fitFirstPage ? 820 : null);
+    const maxPrintW = (snapshotOpts && snapshotOpts.maxWidth) || 660;
+
+    const scaleW = maxPrintW / totalW;
+    const scaleH = maxPrintH ? (maxPrintH / totalH) : scaleW;
+    const fitScale = maxPrintH ? Math.min(scaleW, scaleH) : scaleW;
+
+    const scaledW = Math.round(totalW * fitScale);
     const scaledH = Math.round(totalH * fitScale);
     const wrapBg = '#f1f5f9; border: 1px solid #cbd5e1';
 
     return `
-      <div class="print-rack-wrap" inert style="width: 660px; height: ${scaledH}px; overflow: hidden; margin: 0 auto; border-radius: 10px; background: ${wrapBg}; padding: 6px; box-sizing: content-box; pointer-events: none; user-select: none;">
+      <div class="print-rack-wrap" inert style="width: ${scaledW}px; height: ${scaledH}px; overflow: hidden; margin: 0 auto; border-radius: 10px; background: ${wrapBg}; padding: 6px; box-sizing: content-box; pointer-events: none; user-select: none;">
         <div style="position: relative; width: ${totalW}px; height: ${totalH}px; transform: scale(${fitScale.toFixed(4)}); transform-origin: top left; pointer-events: none;">
           ${clone.innerHTML}
         </div>
@@ -232,9 +239,9 @@ export class PrintPassport {
 
     const parts = [];
 
-    // --- Summary Section ---
-    if (opts.includeSummary) {
-      if (isAllScope) {
+    // --- Section 1: All Racks Scope Summary & Diagrams ---
+    if (isAllScope) {
+      if (opts.includeSummary) {
         const totalOccupiedU = allRacks.reduce((sum, r) => {
           return sum + r.installedDevices.reduce((dSum, d) => {
             const tpl = store.getTemplate(d.templateId);
@@ -255,8 +262,8 @@ export class PrintPassport {
         const allGroups = store.state.connectionGroups || [];
 
         parts.push(`
-          <section class="print-section print-header-card">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #0f172a; padding-bottom:10px; margin-bottom:14px;">
+          <section class="print-section print-header-card" style="page-break-after:always; break-after:page;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #0f172a; padding-bottom:8px; margin-bottom:10px;">
               <div>
                 <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:#0284c7; font-weight:700;">Сводный паспорт серверных стоек проекта</div>
                 <h1 style="font-size:20px; font-weight:800; color:#0f172a; margin:4px 0 2px;">Все стойки проекта (${allRacks.length} шт.)</h1>
@@ -268,89 +275,31 @@ export class PrintPassport {
               </div>
             </div>
 
-            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:12px;">
-              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
+            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; margin-bottom:10px;">
+              <div style="border:1px solid #cbd5e1; border-radius:6px; padding:6px 8px; background:#f8fafc;">
                 <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Занятость юнитов</div>
-                <div style="font-size:16px; font-weight:700; color:#0f172a;">${totalOccupiedU} / ${totalCapacityU} U</div>
+                <div style="font-size:15px; font-weight:700; color:#0f172a;">${totalOccupiedU} / ${totalCapacityU} U</div>
               </div>
-              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
+              <div style="border:1px solid #cbd5e1; border-radius:6px; padding:6px 8px; background:#f8fafc;">
                 <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Оборудование</div>
-                <div style="font-size:16px; font-weight:700; color:#0f172a;">${totalDevCount} устр.</div>
+                <div style="font-size:15px; font-weight:700; color:#0f172a;">${totalDevCount} устр.</div>
               </div>
-              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
+              <div style="border:1px solid #cbd5e1; border-radius:6px; padding:6px 8px; background:#f8fafc;">
                 <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Базовая мощность</div>
-                <div style="font-size:16px; font-weight:700; color:#b45309;">${totalPowerW} Вт</div>
+                <div style="font-size:15px; font-weight:700; color:#b45309;">${totalPowerW} Вт</div>
               </div>
-              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
+              <div style="border:1px solid #cbd5e1; border-radius:6px; padding:6px 8px; background:#f8fafc;">
                 <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Патч-корды</div>
-                <div style="font-size:16px; font-weight:700; color:#0369a1;">${allCables.length} шт.${interRackCount > 0 ? ` (${intraRackCount} внутр. / ${interRackCount} межст.)` : ''}</div>
+                <div style="font-size:15px; font-weight:700; color:#0369a1;">${allCables.length} шт.${interRackCount > 0 ? ` (${intraRackCount} внутр. / ${interRackCount} межст.)` : ''}</div>
               </div>
             </div>
 
             ${allGroups.length > 0 ? `
-              <div style="font-size:11px; color:#334155; display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+              <div style="font-size:11px; color:#334155; display:flex; flex-wrap:wrap; gap:5px; align-items:center;">
                 <span style="font-weight:700;">Рабочие группы проекта:</span>
                 ${allGroups.map(g => `
-                  <span style="display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border:1px solid #cbd5e1; border-radius:999px; background:#fff;">
-                    <span style="width:8px; height:8px; border-radius:50%; background:${escapeHtml(g.color)}; display:inline-block;"></span>
-                    <span>${escapeHtml(g.name)}</span>
-                  </span>
-                `).join('')}
-              </div>
-            ` : ''}
-          </section>
-        `);
-      } else {
-        const occupiedUnits = activeRack.installedDevices.reduce((sum, d) => {
-          const tpl = store.getTemplate(d.templateId);
-          return sum + (tpl?.uHeight || 1);
-        }, 0);
-        const totalPowerW = activeRack.installedDevices.reduce((sum, d) => {
-          const tpl = store.getTemplate(d.templateId);
-          return sum + (tpl?.powerW || 0);
-        }, 0);
-        const cables = store.getCablesForActiveRack();
-        const interRackCount = cables.filter(c => store.isInterRackCable(c)).length;
-        const groups = store.getGroups(activeRack.id);
-
-        parts.push(`
-          <section class="print-section print-header-card">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #0f172a; padding-bottom:10px; margin-bottom:14px;">
-              <div>
-                <h1 style="font-size:20px; font-weight:800; color:#0f172a; margin:0 0 4px;">${escapeHtml(activeRack.name)}</h1>
-                <div style="font-size:12px; color:#475569;">Конструктив: ${escapeHtml(activeRack.model || `19" ${activeRack.uHeight}U`)}</div>
-              </div>
-              <div style="text-align:right; font-size:11px; color:#475569;">
-                <div>Сформировано: <b>${escapeHtml(dateStr)}</b></div>
-                <div>Всего стоек в проекте: <b>${allRacks.length}</b></div>
-              </div>
-            </div>
-
-            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:12px;">
-              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
-                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Занятость юнитов</div>
-                <div style="font-size:16px; font-weight:700; color:#0f172a;">${occupiedUnits} / ${activeRack.uHeight} U</div>
-              </div>
-              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
-                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Оборудование</div>
-                <div style="font-size:16px; font-weight:700; color:#0f172a;">${activeRack.installedDevices.length} устр.</div>
-              </div>
-              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
-                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Базовая мощность</div>
-                <div style="font-size:16px; font-weight:700; color:#b45309;">${totalPowerW} Вт</div>
-              </div>
-              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; background:#f8fafc;">
-                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Патч-корды</div>
-                <div style="font-size:16px; font-weight:700; color:#0369a1;">${cables.length} шт.${interRackCount > 0 ? ` (${interRackCount} межст.)` : ''}</div>
-              </div>
-            </div>
-
-            ${groups.length > 0 ? `
-              <div style="font-size:11px; color:#334155; display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
-                <span style="font-weight:700;">Рабочие группы:</span>
-                ${groups.map(g => `
-                  <span style="display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border:1px solid #cbd5e1; border-radius:999px; background:#fff;">
-                    <span style="width:8px; height:8px; border-radius:50%; background:${escapeHtml(g.color)}; display:inline-block;"></span>
+                  <span style="display:inline-flex; align-items:center; gap:4px; padding:1px 7px; border:1px solid #cbd5e1; border-radius:999px; background:#fff; font-size:10px;">
+                    <span style="width:7px; height:7px; border-radius:50%; background:${escapeHtml(g.color)}; display:inline-block;"></span>
                     <span>${escapeHtml(g.name)}</span>
                   </span>
                 `).join('')}
@@ -359,11 +308,8 @@ export class PrintPassport {
           </section>
         `);
       }
-    }
 
-    // --- Section 1: Rack Snapshots ---
-    if (opts.includeRack) {
-      if (isAllScope) {
+      if (opts.includeRack) {
         const rackBlocks = allRacks.map((r, idx) => {
           const rOccupied = r.installedDevices.reduce((sum, d) => sum + (store.getTemplate(d.templateId)?.uHeight || 1), 0);
           const rPower = r.installedDevices.reduce((sum, d) => sum + (store.getTemplate(d.templateId)?.powerW || 0), 0);
@@ -391,13 +337,83 @@ export class PrintPassport {
             ${rackBlocks}
           </section>
         `);
-      } else {
+      }
+    } else {
+      // --- Active Rack Scope: Unified Titular Page (Summary + Rack Visualization) ---
+      if (opts.includeSummary || opts.includeRack) {
+        const occupiedUnits = activeRack.installedDevices.reduce((sum, d) => {
+          const tpl = store.getTemplate(d.templateId);
+          return sum + (tpl?.uHeight || 1);
+        }, 0);
+        const totalPowerW = activeRack.installedDevices.reduce((sum, d) => {
+          const tpl = store.getTemplate(d.templateId);
+          return sum + (tpl?.powerW || 0);
+        }, 0);
+        const cables = store.getCablesForActiveRack();
+        const interRackCount = cables.filter(c => store.isInterRackCable(c)).length;
+        const groups = store.getGroups(activeRack.id);
+
+        const summaryHtml = opts.includeSummary ? `
+          <div class="print-header-card" style="border-bottom:2px solid #0f172a; padding-bottom:8px; margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
+              <div>
+                <h1 style="font-size:20px; font-weight:800; color:#0f172a; margin:0 0 2px;">${escapeHtml(activeRack.name)}</h1>
+                <div style="font-size:12px; color:#475569;">Конструктив: ${escapeHtml(activeRack.model || `19" ${activeRack.uHeight}U`)}</div>
+              </div>
+              <div style="text-align:right; font-size:11px; color:#475569;">
+                <div>Сформировано: <b>${escapeHtml(dateStr)}</b></div>
+                <div>Всего стоек в проекте: <b>${allRacks.length}</b></div>
+              </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; margin-bottom:8px;">
+              <div style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 8px; background:#f8fafc;">
+                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Занятость юнитов</div>
+                <div style="font-size:15px; font-weight:700; color:#0f172a;">${occupiedUnits} / ${activeRack.uHeight} U</div>
+              </div>
+              <div style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 8px; background:#f8fafc;">
+                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Оборудование</div>
+                <div style="font-size:15px; font-weight:700; color:#0f172a;">${activeRack.installedDevices.length} устр.</div>
+              </div>
+              <div style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 8px; background:#f8fafc;">
+                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Базовая мощность</div>
+                <div style="font-size:15px; font-weight:700; color:#b45309;">${totalPowerW} Вт</div>
+              </div>
+              <div style="border:1px solid #cbd5e1; border-radius:8px; padding:5px 8px; background:#f8fafc;">
+                <div style="font-size:10px; color:#64748b; text-transform:uppercase;">Патч-корды</div>
+                <div style="font-size:15px; font-weight:700; color:#0369a1;">${cables.length} шт.${interRackCount > 0 ? ` (${interRackCount} межст.)` : ''}</div>
+              </div>
+            </div>
+
+            ${groups.length > 0 ? `
+              <div style="font-size:11px; color:#334155; display:flex; flex-wrap:wrap; gap:5px; align-items:center;">
+                <span style="font-weight:700;">Рабочие группы:</span>
+                ${groups.map(g => `
+                  <span style="display:inline-flex; align-items:center; gap:4px; padding:1px 7px; border:1px solid #cbd5e1; border-radius:999px; background:#fff; font-size:10px;">
+                    <span style="width:7px; height:7px; border-radius:50%; background:${escapeHtml(g.color)}; display:inline-block;"></span>
+                    <span>${escapeHtml(g.name)}</span>
+                  </span>
+                `).join('')}
+              </div>
+            ` : ''}
+          </div>
+        ` : '';
+
+        const rackHtml = opts.includeRack ? `
+          <div style="text-align:center;">
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;">
+              <h2 style="font-size:13px; font-weight:700; color:#0f172a; margin:0;">
+                1. Монтажная схема шкафа (${escapeHtml(activeRack.name)})
+              </h2>
+            </div>
+            ${this.captureRackSnapshotMarkup(activeRack.id, { fitFirstPage: opts.includeSummary })}
+          </div>
+        ` : '';
+
         parts.push(`
-          <section class="print-section" style="margin-top:16px;">
-            <h2 style="font-size:14px; font-weight:700; color:#0f172a; border-bottom:1px solid #cbd5e1; padding-bottom:4px; margin-bottom:10px;">
-              1. Монтажная схема шкафа (${escapeHtml(activeRack.name)})
-            </h2>
-            ${this.captureRackSnapshotMarkup(activeRack.id)}
+          <section class="print-section print-titular-page" style="page-break-after:always; break-after:page;">
+            ${summaryHtml}
+            ${rackHtml}
           </section>
         `);
       }
